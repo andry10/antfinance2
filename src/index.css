@@ -1,14 +1,23 @@
 @import "tailwindcss";
 
-html {
+html, body {
   -webkit-text-size-adjust: 100%;
   touch-action: manipulation;
-}
-
-body {
   overflow-x: hidden;
   -webkit-tap-highlight-color: transparent;
   -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+/* Mencegah auto-zoom di iOS Safari saat tap input */
+input, select, textarea {
+  font-size: 16px !important;
+}
+
+@media (min-width: 640px) {
+  input, select, textarea {
+    font-size: 14px !important;
+  }
 }
 
 @layer utilities {
