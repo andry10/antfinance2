@@ -833,8 +833,8 @@ export const ProductsView: React.FC = () => {
                       type="number"
                       required
                       min="0"
-                      value={barangForm.price}
-                      onChange={(e) => setBarangForm({ ...barangForm, price: Number(e.target.value) })}
+                      value={barangForm.price === 0 ? '' : barangForm.price}
+                      onChange={(e) => setBarangForm({ ...barangForm, price: e.target.value === '' ? 0 : Number(e.target.value) })}
                       className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-1 focus:ring-teal-500 font-extrabold text-teal-800"
                     />
                   </div>
@@ -846,8 +846,8 @@ export const ProductsView: React.FC = () => {
                       type="number"
                       required
                       min="0"
-                      value={barangForm.cost}
-                      onChange={(e) => setBarangForm({ ...barangForm, cost: Number(e.target.value) })}
+                      value={barangForm.cost === 0 ? '' : barangForm.cost}
+                      onChange={(e) => setBarangForm({ ...barangForm, cost: e.target.value === '' ? 0 : Number(e.target.value) })}
                       className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-1 focus:ring-teal-500 font-extrabold text-slate-700"
                     />
                   </div>
@@ -866,8 +866,8 @@ export const ProductsView: React.FC = () => {
                     <input
                       type="number"
                       min="0"
-                      value={barangForm.stock}
-                      onChange={(e) => setBarangForm({ ...barangForm, stock: Number(e.target.value) })}
+                      value={barangForm.stock === 0 ? '' : barangForm.stock}
+                      onChange={(e) => setBarangForm({ ...barangForm, stock: e.target.value === '' ? 0 : Number(e.target.value) })}
                       className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-1 focus:ring-teal-500 font-bold"
                     />
                   </div>
