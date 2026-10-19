@@ -373,10 +373,23 @@ export const SettingsView: React.FC = () => {
                 seedInitialData();
               }}
               disabled={isSyncing}
-              className="w-full flex items-center justify-center gap-2 py-2.5 px-3 bg-slate-100 hover:bg-teal-50 hover:text-teal-800 text-slate-700 font-semibold rounded-xl text-xs transition"
+              className="w-full flex items-center justify-center gap-2 py-2.5 px-3 bg-slate-100 hover:bg-teal-50 hover:text-teal-800 text-slate-700 font-semibold rounded-xl text-xs transition cursor-pointer"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
               <span>{isSyncing ? 'Memuat Data...' : 'Muat Ulang Data Sampel Produk & Pengeluaran'}</span>
+            </button>
+
+            <button
+              onClick={() => {
+                if (window.confirm('Reset aplikasi akan membersihkan cache lokal dan memuat ulang aplikasi. Lanjutkan?')) {
+                  localStorage.clear();
+                  window.location.reload();
+                }
+              }}
+              className="w-full flex items-center justify-center gap-2 py-2.5 px-3 bg-rose-50 hover:bg-rose-100 text-rose-700 font-semibold rounded-xl text-xs transition cursor-pointer"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>Reset & Muat Ulang Aplikasi</span>
             </button>
           </div>
         </div>

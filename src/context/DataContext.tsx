@@ -410,17 +410,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => unsubscribe();
   }, []);
 
-  // Auto seed products if empty
-  useEffect(() => {
-    if (products.length === 0 && !isSyncing) {
-      const timer = setTimeout(() => {
-        if (products.length === 0) {
-          seedInitialData();
-        }
-      }, 1200);
-      return () => clearTimeout(timer);
-    }
-  }, [products.length]);
+
 
 
 
@@ -757,7 +747,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       const newPaid = (existing.paidAmount || 0) + amountToPay;
       const newRemaining = Math.max(0, existing.amount - newPaid);
-      const status = newRemaining === 0 ? 'paid' : 'partial';
+      const status = newRemaining <= 0 ? 'paid' : 'partial';
 
       await updateDoc(docRef, {
         paidAmount: newPaid,
