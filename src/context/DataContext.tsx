@@ -422,23 +422,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [products.length]);
 
-  // Auto seed PS rentals if empty in Firestore
-  useEffect(() => {
-    if (psRentals.length === 0 && !isSyncing) {
-      const timer = setTimeout(async () => {
-        if (psRentals.length === 0) {
-          for (const r of SAMPLE_PS_RENTALS) {
-            const rRef = doc(collection(db, 'ps_rentals'));
-            await setDoc(rRef, {
-              ...r,
-              updatedAt: new Date().toISOString(),
-            });
-          }
-        }
-      }, 2000);
-      return () => clearTimeout(timer);
-    }
-  }, [psRentals.length]);
+
 
   const seedInitialData = async () => {
     try {
