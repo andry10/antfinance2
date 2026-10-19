@@ -495,11 +495,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         await Promise.all(deletes);
       }
 
-      // Re-seed clean initial data
-      await seedInitialData();
-
       localStorage.clear();
-      alert('Semua data berhasil direset dan dibersihkan total dari Firebase!');
+      alert('Semua data berhasil direset dan dikosongkan total dari Firebase!');
       window.location.reload();
     } catch (err) {
       console.error('Reset database error:', err);

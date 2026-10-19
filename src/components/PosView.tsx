@@ -26,7 +26,7 @@ import {
 } from 'lucide-react';
 import { useData, DEFAULT_ADMIN_TIERS, getProductAdminRanges } from '../context/DataContext';
 import { Product, CartItem, Transaction, AdminFeeTier } from '../types';
-import { formatRupiah } from '../utils/formatters';
+import { formatRupiah, formatNumberWithDots, parseNumberFromDots } from '../utils/formatters';
 import { ReceiptModal } from './ReceiptModal';
 
 export const PosView: React.FC = () => {
@@ -423,13 +423,12 @@ export const PosView: React.FC = () => {
                       Rp
                     </span>
                     <input
-                      type="number"
-                      min="1000"
-                      step="1000"
+                      type="text"
+                      inputMode="numeric"
                       required
-                      value={nominal || ''}
-                      placeholder="Contoh: 100000"
-                      onChange={(e) => setNominal(Number(e.target.value))}
+                      value={formatNumberWithDots(nominal)}
+                      onChange={(e) => setNominal(parseNumberFromDots(e.target.value))}
+                      placeholder="0"
                       className="w-full pl-12 pr-4 py-3 bg-white border border-slate-300 rounded-2xl text-xl font-extrabold text-teal-800 focus:outline-hidden focus:ring-2 focus:ring-teal-500 font-mono"
                     />
                   </div>
@@ -700,12 +699,14 @@ export const PosView: React.FC = () => {
                       <div className="relative">
                         <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs">Rp</span>
                         <input
-                          type="number"
-                          min="0"
-                          step="1000"
-                          value={cashGiven}
+                          type="text"
+                          inputMode="numeric"
+                          value={cashGiven === '' ? '' : formatNumberWithDots(Number(cashGiven))}
+                          onChange={(e) => {
+                            const val = parseNumberFromDots(e.target.value);
+                            setCashGiven(val === 0 ? '' : String(val));
+                          }}
                           placeholder="0 (Utang Full)"
-                          onChange={(e) => setCashGiven(e.target.value)}
                           className="w-48 pl-9 pr-3 py-2 bg-white border border-rose-300 rounded-xl text-sm font-extrabold text-slate-900 focus:ring-2 focus:ring-rose-500 font-mono text-right"
                         />
                       </div>
