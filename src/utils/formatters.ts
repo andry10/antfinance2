@@ -7,6 +7,19 @@ export function formatRupiah(amount: number): string {
   }).format(amount || 0);
 }
 
+export function formatNumberWithDots(amount: number): string {
+  if (amount === 0 || isNaN(amount)) return '';
+  return new Intl.NumberFormat('id-ID', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(amount || 0);
+}
+
+export function parseNumberFromDots(str: string): number {
+  const clean = String(str).replace(/\./g, '').replace(/[^0-9]/g, '');
+  return clean === '' ? 0 : Number(clean);
+}
+
 export function formatDate(dateStr: string): string {
   try {
     const d = new Date(dateStr);

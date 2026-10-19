@@ -28,7 +28,7 @@ import {
 } from '../context/DataContext';
 import { useAuth } from '../context/AuthContext';
 import { Product, PsRental, AdminFeeTier, AdminRange } from '../types';
-import { formatRupiah } from '../utils/formatters';
+import { formatRupiah, formatNumberWithDots, parseNumberFromDots } from '../utils/formatters';
 
 export const ProductsView: React.FC = () => {
   const { 
@@ -830,11 +830,12 @@ export const ProductsView: React.FC = () => {
                       Harga Jual (Rp) *
                     </label>
                     <input
-                      type="number"
+                      type="text"
+                      inputMode="numeric"
                       required
-                      min="0"
-                      value={barangForm.price === 0 ? '' : barangForm.price}
-                      onChange={(e) => setBarangForm({ ...barangForm, price: e.target.value === '' ? 0 : Number(e.target.value) })}
+                      value={formatNumberWithDots(barangForm.price)}
+                      onChange={(e) => setBarangForm({ ...barangForm, price: parseNumberFromDots(e.target.value) })}
+                      placeholder="0"
                       className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-1 focus:ring-teal-500 font-extrabold text-teal-800"
                     />
                   </div>
@@ -843,11 +844,12 @@ export const ProductsView: React.FC = () => {
                       Harga Modal / Beli (HPP) *
                     </label>
                     <input
-                      type="number"
+                      type="text"
+                      inputMode="numeric"
                       required
-                      min="0"
-                      value={barangForm.cost === 0 ? '' : barangForm.cost}
-                      onChange={(e) => setBarangForm({ ...barangForm, cost: e.target.value === '' ? 0 : Number(e.target.value) })}
+                      value={formatNumberWithDots(barangForm.cost)}
+                      onChange={(e) => setBarangForm({ ...barangForm, cost: parseNumberFromDots(e.target.value) })}
+                      placeholder="0"
                       className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-1 focus:ring-teal-500 font-extrabold text-slate-700"
                     />
                   </div>
@@ -864,10 +866,11 @@ export const ProductsView: React.FC = () => {
                   <div>
                     <label className="block text-slate-600 font-medium mb-1">Stok Awal</label>
                     <input
-                      type="number"
-                      min="0"
-                      value={barangForm.stock === 0 ? '' : barangForm.stock}
-                      onChange={(e) => setBarangForm({ ...barangForm, stock: e.target.value === '' ? 0 : Number(e.target.value) })}
+                      type="text"
+                      inputMode="numeric"
+                      value={formatNumberWithDots(barangForm.stock)}
+                      onChange={(e) => setBarangForm({ ...barangForm, stock: parseNumberFromDots(e.target.value) })}
+                      placeholder="0"
                       className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-1 focus:ring-teal-500 font-bold"
                     />
                   </div>
