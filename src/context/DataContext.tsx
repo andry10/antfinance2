@@ -8,7 +8,8 @@ import {
   deleteDoc, 
   query, 
   orderBy,
-  runTransaction
+  runTransaction,
+  getDocs
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType, testConnection } from '../lib/firebase';
 import { Product, Transaction, Expense, BusinessSettings, CartItem, Debt, PsRental, PsSavedTime, AdminFeeTier } from '../types';
@@ -88,6 +89,7 @@ interface DataContextType {
   // Settings & seed
   updateSettings: (newSettings: Partial<BusinessSettings>) => Promise<void>;
   seedInitialData: () => Promise<void>;
+  resetAllData: () => Promise<void>;
 }
 
 export const DEFAULT_ADMIN_TIERS: AdminFeeTier[] = [
@@ -467,6 +469,41 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
     } catch (err) {
       console.error('Seed data error', err);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const resetAllData = async () => {
+    if (!window.confirm('PERHATIAN: Tindakan ini akan MENGHAPUS SEMUA DATA di Firebase (Produk, Transaksi, Pengeluaran, Hutang, PS Rentals, dll.) secara permanen. Lanjutkan?')) {
+      return;
+    }
+    setIsSyncing(true);
+    try {
+      const collectionsToClear = [
+        'products',
+        'transactions',
+        'expenses',
+        'debts',
+        'ps_rentals',
+        'ps_saved_times'
+      ];
+
+      for (const colName of collectionsToClear) {
+        const snap = await getDocs(collection(db, colName));
+        const deletes = snap.docs.map((d) => deleteDoc(d.ref));
+        await Promise.all(deletes);
+      }
+
+      // Re-seed clean initial data
+      await seedInitialData();
+
+      localStorage.clear();
+      alert('Semua data berhasil direset dan dibersihkan total dari Firebase!');
+      window.location.reload();
+    } catch (err) {
+      console.error('Reset database error:', err);
+      alert('Gagal mereset data database.');
     } finally {
       setIsSyncing(false);
     }
@@ -1142,6 +1179,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         deletePsUnit,
         updateSettings,
         seedInitialData,
+        resetAllData,
       }}
     >
       {children}

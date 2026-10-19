@@ -32,8 +32,10 @@ export const DashboardReportsView: React.FC = () => {
 
   // Date Filter State
   const todayStr = new Date().toISOString().split('T')[0];
-  const [filterPeriod, setFilterPeriod] = useState<'today' | 'yesterday' | '7days' | 'month' | 'custom'>('today');
+  const [filterPeriod, setFilterPeriod] = useState<'today' | 'yesterday' | '7days' | 'month' | 'custom' | 'range'>('today');
   const [customDate, setCustomDate] = useState<string>(todayStr);
+  const [startDate, setStartDate] = useState<string>(todayStr);
+  const [endDate, setEndDate] = useState<string>(todayStr);
 
   // Expense Modal State
   const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(false);
@@ -77,10 +79,14 @@ export const DashboardReportsView: React.FC = () => {
       txList = txList.filter((t) => t.dateString === customDate);
       expList = expList.filter((e) => e.dateString === customDate);
       label = `Tanggal ${formatDate(customDate)}`;
+    } else if (filterPeriod === 'range') {
+      txList = txList.filter((t) => t.dateString >= startDate && t.dateString <= endDate);
+      expList = expList.filter((e) => e.dateString >= startDate && e.dateString <= endDate);
+      label = `Rentang: ${formatDate(startDate)} s.d. ${formatDate(endDate)}`;
     }
 
     return { filteredTransactions: txList, filteredExpenses: expList, periodLabel: label };
-  }, [transactions, expenses, filterPeriod, customDate]);
+  }, [transactions, expenses, filterPeriod, customDate, startDate, endDate]);
 
   // Financial Metrics Summary
   const summary = useMemo(() => {
@@ -247,7 +253,8 @@ export const DashboardReportsView: React.FC = () => {
             { id: 'yesterday', label: 'Kemarin' },
             { id: '7days', label: '7 Hari Terakhir' },
             { id: 'month', label: 'Bulan Ini' },
-            { id: 'custom', label: 'Pilih Tanggal' },
+            { id: 'custom', label: 'Tanggal' },
+            { id: 'range', label: 'Rentang Tanggal' },
           ].map((tab) => {
             const isActive = filterPeriod === tab.id;
             return (
@@ -274,6 +281,25 @@ export const DashboardReportsView: React.FC = () => {
               value={customDate}
               onChange={(e) => setCustomDate(e.target.value)}
               className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-700 font-medium focus:ring-1 focus:ring-teal-500"
+            />
+          </div>
+        )}
+
+        {filterPeriod === 'range' && (
+          <div className="flex items-center gap-2 text-xs">
+            <span className="text-slate-500">Dari:</span>
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-700 font-medium"
+            />
+            <span className="text-slate-500">s.d.</span>
+            <input
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              className="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-700 font-medium"
             />
           </div>
         )}

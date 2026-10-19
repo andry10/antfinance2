@@ -20,7 +20,7 @@ import { useData } from '../context/DataContext';
 
 export const SettingsView: React.FC = () => {
   const { userProfile, loginWithGoogle, loginDemo, logout, switchRole } = useAuth();
-  const { settings, updateSettings, seedInitialData, isSyncing } = useData();
+  const { settings, updateSettings, seedInitialData, resetAllData, isSyncing } = useData();
 
   // Store form state
   const [storeForm, setStoreForm] = useState({
@@ -381,15 +381,13 @@ export const SettingsView: React.FC = () => {
 
             <button
               onClick={() => {
-                if (window.confirm('Reset aplikasi akan membersihkan cache lokal dan memuat ulang aplikasi. Lanjutkan?')) {
-                  localStorage.clear();
-                  window.location.reload();
-                }
+                resetAllData();
               }}
+              disabled={isSyncing}
               className="w-full flex items-center justify-center gap-2 py-2.5 px-3 bg-rose-50 hover:bg-rose-100 text-rose-700 font-semibold rounded-xl text-xs transition cursor-pointer"
             >
-              <RefreshCw className="w-3.5 h-3.5" />
-              <span>Reset & Muat Ulang Aplikasi</span>
+              <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+              <span>{isSyncing ? 'Mereset Data...' : 'Reset & Hapus Semua Data (Firestore)'}</span>
             </button>
           </div>
         </div>
