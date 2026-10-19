@@ -50,12 +50,42 @@ export const PsRentalView: React.FC = () => {
   const { userProfile } = useAuth();
   const isAdmin = userProfile?.role === 'admin';
 
-  // Live timer tick every second for real-time countdown
+  // Live timer tick every second for real-time countdown & auto-stop when time is up
   const [, setTick] = useState(0);
   useEffect(() => {
-    const interval = setInterval(() => setTick((t) => t + 1), 1000);
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+
+    const interval = setInterval(() => {
+      setTick((t) => t + 1);
+
+      psRentals.forEach((unit) => {
+        if (unit.status === 'in_use' && unit.expectedEndTime) {
+          const endMs = new Date(unit.expectedEndTime).getTime();
+          const diffMs = endMs - Date.now();
+          if (diffMs <= 0) {
+            const sessionKey = `autostop_${unit.id}_${unit.startTime}`;
+            if (!sessionStorage.getItem(sessionKey)) {
+              sessionStorage.setItem(sessionKey, 'true');
+              if ('Notification' in window && Notification.permission === 'granted') {
+                try {
+                  new Notification('Waktu Rental PS Habis!', {
+                    body: `Unit ${unit.unitName} (${unit.customerName || 'Pemain'}) telah selesai otomatis dan disimpan.`,
+                  });
+                } catch (e) {
+                  console.error(e);
+                }
+              }
+              stopPsRental(unit.id, true).catch((err) => console.error('Auto stop error:', err));
+            }
+          }
+        }
+      });
+    }, 1000);
+
     return () => clearInterval(interval);
-  }, []);
+  }, [psRentals]);
 
   // Main navigation tab: 'stations' | 'saved_times'
   const [activeTab, setActiveTab] = useState<'stations' | 'saved_times'>('stations');
@@ -611,7 +641,14 @@ export const PsRentalView: React.FC = () => {
                     {isPlaying ? (
                       <div className="flex gap-2">
                         <button
-                          onClick={() => stopPsRental(unit.id, true)}
+                          onClick={async () => {
+                            try {
+                              await stopPsRental(unit.id, true);
+                            } catch (err: any) {
+                              console.error('Stop rental error:', err);
+                              alert('Gagal menyelesaikan rental: ' + (err.message || err));
+                            }
+                          }}
                           className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold rounded-xl text-xs transition active:scale-95 shadow-xs cursor-pointer"
                         >
                           <CheckCircle2 className="w-4 h-4" />
