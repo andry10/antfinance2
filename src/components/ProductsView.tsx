@@ -254,6 +254,24 @@ export const ProductsView: React.FC = () => {
     setTimeout(() => setIsTierSaved(false), 3000);
   };
 
+  const handleOpenAddFuel = () => {
+    setModalType('barang');
+    setEditingProduct(null);
+    setEditingPsUnit(null);
+    setBarangForm({
+      name: 'Pertalite / Pertamax',
+      category: 'BBM',
+      sku: `BBM-${Math.floor(100 + Math.random() * 900)}`,
+      price: 10000,
+      cost: 9000,
+      stock: 100,
+      minStock: 10,
+      unit: 'Liter',
+      isFuel: true,
+    });
+    setIsAddModalOpen(true);
+  };
+
   const handleOpenAdd = (type: 'barang' | 'ppob_range' | 'ps') => {
     setModalType(type);
     setEditingProduct(null);
@@ -338,15 +356,23 @@ export const ProductsView: React.FC = () => {
         <div className="flex flex-wrap gap-2">
           <button
             onClick={() => handleOpenAdd('barang')}
-            className="flex items-center gap-1.5 px-3 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-bold transition shadow-xs"
+            className="flex items-center gap-1.5 px-3 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer"
           >
             <Plus className="w-4 h-4" />
             <span>+ Barang / Pulsa</span>
           </button>
 
           <button
+            onClick={handleOpenAddFuel}
+            className="flex items-center gap-1.5 px-3 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer"
+          >
+            <Fuel className="w-4 h-4" />
+            <span>+ Bensin / BBM (Liter)</span>
+          </button>
+
+          <button
             onClick={() => handleOpenAdd('ppob_range')}
-            className="flex items-center gap-1.5 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition shadow-xs"
+            className="flex items-center gap-1.5 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer"
           >
             <Plus className="w-4 h-4" />
             <span>+ PPOB Range</span>
@@ -354,7 +380,7 @@ export const ProductsView: React.FC = () => {
 
           <button
             onClick={() => handleOpenAdd('ps')}
-            className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition shadow-xs"
+            className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer"
           >
             <Plus className="w-4 h-4" />
             <span>+ Unit PS</span>

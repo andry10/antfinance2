@@ -793,9 +793,9 @@ export const PosView: React.FC = () => {
                   <span>
                     {paymentMethod === 'Hutang / Kas Bon'
                       ? isFullDebt
-                        ? `Simpan Transaksi (Utang Full ${formatRupiah(finalTagihan)})`
-                        : `Simpan Transaksi (Bayar DP ${formatRupiah(numPaid)} • Sisa Hutang ${formatRupiah(remainingDebt)})`
-                      : `Selesaikan Transaksi (Lunas ${formatRupiah(finalTagihan)})`}
+                        ? 'Simpan Transaksi Kas Bon'
+                        : 'Simpan Pembayaran Sebagian (DP)'
+                      : 'Selesaikan Transaksi'}
                   </span>
                 </>
               )}
