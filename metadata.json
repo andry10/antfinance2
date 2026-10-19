@@ -1,0 +1,6 @@
+{
+  "name": "CatatUsaha - Kasir & Pembukuan Realtime",
+  "description": "Aplikasi pencatatan usaha dan kasir POS realtime dengan laporan penjualan harian, cetak PDF, dan manajemen stok terintegrasi.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
