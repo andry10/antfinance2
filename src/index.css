@@ -26,6 +26,32 @@ input, select, textarea {
   }
 }
 
+/* Scanner Video Fit & Anti-Dark Styles */
+#qr-reader-container {
+  width: 100% !important;
+  height: 100% !important;
+  position: relative !important;
+  background-color: transparent !important;
+  border: none !important;
+  padding: 0 !important;
+}
+
+#qr-reader-container video {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+  border-radius: 1rem;
+}
+
+/* Sembunyikan shaded region bawaan html5-qrcode yang membuat kamera gelap */
+#qr-reader-container #qr-shaded-region {
+  display: none !important;
+}
+
+#qr-reader-container img[alt="Info icon"] {
+  display: none !important;
+}
+
 @media print {
   body * {
     visibility: hidden;

@@ -26,7 +26,8 @@ import {
   Zap,
   Flashlight,
   Barcode as BarcodeIcon,
-  Sliders
+  Sliders,
+  Sun
 } from 'lucide-react';
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
 import { GoogleGenAI } from '@google/genai';
@@ -168,6 +169,9 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
   const [barcodeMatchedProduct, setBarcodeMatchedProduct] = useState<Product | null>(null);
   const [barcodeFilterMode, setBarcodeFilterMode] = useState<'all' | '1d' | 'qr'>('all');
   const [manualBarcodeInput, setManualBarcodeInput] = useState<string>('');
+  const [availableCameras, setAvailableCameras] = useState<{ id: string; label: string }[]>([]);
+  const [selectedCameraIndex, setSelectedCameraIndex] = useState<number>(0);
+  const [isExtraBright, setIsExtraBright] = useState<boolean>(false);
 
   // Auto Zoom & Camera Focus states for Barcode / QR (mengatasi barcode kecil & kamera blur)
   const [zoomLevel, setZoomLevel] = useState<number>(1.0);
@@ -253,14 +257,35 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
         const constraints: MediaStreamConstraints = {
           video: {
             facingMode: { ideal: facing },
-            width: { min: 1280, ideal: 1920, max: 2560 },
-            height: { min: 720, ideal: 1080, max: 1440 },
+            width: { ideal: 1920 },
+            height: { ideal: 1080 },
           },
           audio: false,
         };
 
         const stream = await navigator.mediaDevices.getUserMedia(constraints);
         liveStreamRef.current = stream;
+
+        // Apply continuous focus/exposure if available
+        try {
+          const track = stream.getVideoTracks()[0];
+          if (track) {
+            const caps = (track.getCapabilities ? track.getCapabilities() : {}) as any;
+            const adv: any = {};
+            if (caps.focusMode && Array.isArray(caps.focusMode) && caps.focusMode.includes('continuous')) {
+              adv.focusMode = 'continuous';
+            }
+            if (caps.exposureMode && Array.isArray(caps.exposureMode) && caps.exposureMode.includes('continuous')) {
+              adv.exposureMode = 'continuous';
+            }
+            if (caps.whiteBalanceMode && Array.isArray(caps.whiteBalanceMode) && caps.whiteBalanceMode.includes('continuous')) {
+              adv.whiteBalanceMode = 'continuous';
+            }
+            if (Object.keys(adv).length > 0) {
+              await track.applyConstraints({ advanced: [adv] });
+            }
+          }
+        } catch {}
 
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
@@ -421,8 +446,45 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
     }
   }, [isTorchOn]);
 
-  // Start QR & Barcode scanner using Html5Qrcode + native BarcodeDetector for max sensitivity
-  const startQrScanner = useCallback(async () => {
+  // Switch camera in QR & Barcode mode (cycles through available camera lenses)
+  const handleSwitchCameraInQr = useCallback(async () => {
+    if (availableCameras.length <= 1) return;
+    const nextIdx = (selectedCameraIndex + 1) % availableCameras.length;
+    setSelectedCameraIndex(nextIdx);
+    await stopQrScanner();
+    setTimeout(() => {
+      startQrScanner(availableCameras[nextIdx].id);
+    }, 150);
+  }, [availableCameras, selectedCameraIndex, stopQrScanner]);
+
+  // Toggle Extra Bright / High-Contrast Mode for dark rooms or dark cameras
+  const handleToggleExtraBright = useCallback(async () => {
+    const nextState = !isExtraBright;
+    setIsExtraBright(nextState);
+
+    const videoEl = document.querySelector('#qr-reader-container video') as HTMLVideoElement | null;
+    if (videoEl) {
+      videoEl.style.filter = nextState ? 'brightness(1.35) contrast(1.2) saturate(1.1)' : 'none';
+    }
+
+    const track = activeQrTrackRef.current;
+    if (track) {
+      try {
+        const caps = (track.getCapabilities ? track.getCapabilities() : {}) as any;
+        if (caps && caps.exposureCompensation) {
+          const comp = nextState ? Math.min(caps.exposureCompensation.max || 0, 1.5) : (caps.exposureCompensation.min || 0) <= 0 ? 0 : 0;
+          await track.applyConstraints({
+            advanced: [{ exposureCompensation: comp } as any],
+          });
+        }
+      } catch (e) {
+        console.warn('Exposure compensation warning:', e);
+      }
+    }
+  }, [isExtraBright]);
+
+  // Start QR & Barcode scanner with multi-camera selection & full-frame ultra sensitivity
+  const startQrScanner = useCallback(async (forcedCameraId?: string) => {
     if (isStartingQrRef.current) return;
     if (qrReaderRef.current && qrReaderRef.current.isScanning) {
       return; // Already actively scanning
@@ -453,6 +515,27 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
           qrReaderRef.current = null;
         }
 
+        // 1. Detect and enumerate available cameras (main back, wide, front, etc.)
+        let targetCamId = forcedCameraId;
+        try {
+          const devices = await Html5Qrcode.getCameras();
+          if (devices && devices.length > 0) {
+            setAvailableCameras(devices);
+            if (!targetCamId) {
+              // Prefer main back/rear camera
+              const backIdx = devices.findIndex((d) => {
+                const l = d.label.toLowerCase();
+                return l.includes('back') || l.includes('rear') || l.includes('belakang') || l.includes('environment');
+              });
+              const chosenIdx = backIdx !== -1 ? backIdx : 0;
+              setSelectedCameraIndex(chosenIdx);
+              targetCamId = devices[chosenIdx].id;
+            }
+          }
+        } catch (camErr) {
+          console.warn('Camera enumeration info:', camErr);
+        }
+
         // Support ALL standard 1D Barcode Batang (Linear) & 2D QR formats
         const formatsToSupport = [
           Html5QrcodeSupportedFormats.EAN_13,
@@ -480,21 +563,14 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
         });
         qrReaderRef.current = html5QrCode;
 
-        // Ideal widescreen 720p (sharp lines, no overconstrained error, wide margin for 1D barcodes)
+        // Camera config: Use specific deviceId if detected, otherwise fallback to facingMode 'environment'
+        const cameraConfig = targetCamId ? targetCamId : { facingMode: 'environment' };
+
+        // Start scanning: Fast 20 FPS, full frame without dark shaded region mask
         await html5QrCode.start(
+          cameraConfig,
           {
-            facingMode: 'environment',
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-          },
-          {
-            fps: 12, // Smooth, non-blocking 12 FPS optimal for JS & native barcode decoding
-            qrbox: (viewfinderWidth, viewfinderHeight) => {
-              // Wide horizontal rectangular scan window designed for 1D Barcode Batang & QR
-              const width = Math.min(Math.floor(viewfinderWidth * 0.96), 540);
-              const height = Math.min(Math.floor(viewfinderHeight * 0.8), 280);
-              return { width: Math.max(width, 260), height: Math.max(height, 160) };
-            },
+            fps: 20, // Fast 20 FPS for responsive handheld scan
             disableFlip: true,
           },
           (decodedText) => {
@@ -507,25 +583,53 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
         isStartingQrRef.current = false;
         isQrScanningActiveRef.current = true;
 
-        // Detect video track, torch, zoom capabilities
+        // Detect video track, auto-focus, continuous exposure & brightness boost
         setTimeout(async () => {
           const videoEl = document.querySelector('#qr-reader-container video') as HTMLVideoElement | null;
-          if (videoEl && videoEl.srcObject) {
-            const stream = videoEl.srcObject as MediaStream;
-            const track = stream.getVideoTracks()[0];
-            if (track) {
-              activeQrTrackRef.current = track;
-              const caps = (track.getCapabilities ? track.getCapabilities() : {}) as any;
-              if (caps && caps.zoom) {
-                zoomRangeRef.current = {
-                  min: caps.zoom.min || 1.0,
-                  max: Math.min(caps.zoom.max || 5.0, 5.0),
-                  step: caps.zoom.step || 0.1,
-                  hasHardware: true,
-                };
-              }
-              if (caps && caps.torch) {
-                setIsTorchAvailable(true);
+          if (videoEl) {
+            if (isExtraBright) {
+              videoEl.style.filter = 'brightness(1.35) contrast(1.2) saturate(1.1)';
+            }
+
+            if (videoEl.srcObject) {
+              const stream = videoEl.srcObject as MediaStream;
+              const track = stream.getVideoTracks()[0];
+              if (track) {
+                activeQrTrackRef.current = track;
+                const caps = (track.getCapabilities ? track.getCapabilities() : {}) as any;
+                if (caps && caps.zoom) {
+                  zoomRangeRef.current = {
+                    min: caps.zoom.min || 1.0,
+                    max: Math.min(caps.zoom.max || 5.0, 5.0),
+                    step: caps.zoom.step || 0.1,
+                    hasHardware: true,
+                  };
+                }
+                if (caps && caps.torch) {
+                  setIsTorchAvailable(true);
+                }
+
+                // Continuous Auto-Focus, Auto-Exposure, and White Balance
+                try {
+                  const adv: any = {};
+                  if (caps.focusMode && Array.isArray(caps.focusMode) && caps.focusMode.includes('continuous')) {
+                    adv.focusMode = 'continuous';
+                  }
+                  if (caps.exposureMode && Array.isArray(caps.exposureMode) && caps.exposureMode.includes('continuous')) {
+                    adv.exposureMode = 'continuous';
+                  }
+                  if (caps.whiteBalanceMode && Array.isArray(caps.whiteBalanceMode) && caps.whiteBalanceMode.includes('continuous')) {
+                    adv.whiteBalanceMode = 'continuous';
+                  }
+                  if (caps.exposureCompensation && (caps.exposureCompensation.max || 0) > 0) {
+                    adv.exposureCompensation = isExtraBright ? Math.min(caps.exposureCompensation.max, 1.5) : 0.5;
+                  }
+                  if (Object.keys(adv).length > 0) {
+                    await track.applyConstraints({ advanced: [adv] });
+                  }
+                } catch (constrErr) {
+                  console.warn('Advanced camera constraints warning:', constrErr);
+                }
               }
             }
           }
@@ -571,7 +675,7 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
                 clearInterval(nativeScanTimerRef.current);
               }
 
-              // Rapid 60ms detection loop on native video stream
+              // Rapid 50ms detection loop on native video stream
               nativeScanTimerRef.current = setInterval(async () => {
                 if (!isQrScanningActiveRef.current) return;
                 const v = document.querySelector('#qr-reader-container video') as HTMLVideoElement | null;
@@ -585,12 +689,12 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
                     // skip frame
                   }
                 }
-              }, 60);
+              }, 50);
             } catch (err) {
               console.warn('Native BarcodeDetector initialization warning:', err);
             }
           }
-        }, 200);
+        }, 150);
 
       } catch (err: any) {
         console.warn('Failed to start QR/Barcode reader:', err);
@@ -603,8 +707,8 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
           setQrError('Tidak dapat membuka kamera untuk barcode/QR. Pastikan browser mendukung kamera, atau gunakan tombol "Ambil Foto Barcode Bawaan HP" di bawah.');
         }
       }
-    }, 150);
-  }, [handleBarcodeScanned]);
+    }, 120);
+  }, [handleBarcodeScanned, isExtraBright]);
 
   // Instant high-contrast snapshot scan for tough, shiny, or faded barcodes
   const handleManualScanSnapshot = async () => {
@@ -685,7 +789,7 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
         if (!blob) return;
         const file = new File([blob], 'snap.jpg', { type: 'image/jpeg' });
         try {
-          const scanner = new Html5Qrcode('qr-reader-container', {
+          const scanner = new Html5Qrcode('qr-hidden-file-reader', {
             formatsToSupport: [
               Html5QrcodeSupportedFormats.EAN_13,
               Html5QrcodeSupportedFormats.EAN_8,
@@ -705,13 +809,14 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
             verbose: false,
           });
           const text = await scanner.scanFile(file, true);
+          try { await scanner.clear(); } catch {}
           if (text) {
             handleBarcodeScanned(text);
           } else {
-            alert('Barcode belum terbaca. Coba nyalakan tombol Senter 🔦, dekatkan ke jarak 15 cm, atau gunakan tombol "Foto Barcode HP" di bawah.');
+            alert('Barcode belum terbaca. Coba nyalakan tombol Mode Terang ☀️ atau Senter 🔦, dekatkan ke jarak 15 cm, atau gunakan tombol "Foto Barcode HP" di bawah.');
           }
         } catch {
-          alert('Barcode belum terbaca. Coba nyalakan tombol Senter 🔦, dekatkan ke jarak 15 cm, atau gunakan tombol "Foto Barcode HP" di bawah.');
+          alert('Barcode belum terbaca. Coba nyalakan tombol Mode Terang ☀️ atau Senter 🔦, dekatkan ke jarak 15 cm, atau gunakan tombol "Foto Barcode HP" di bawah.');
         }
       }, 'image/jpeg', 0.95);
     } catch (e) {
@@ -757,7 +862,7 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
       }
 
       // 2. Fallback to Html5Qrcode.scanFile
-      const html5QrCode = new Html5Qrcode('qr-reader-container', {
+      const html5QrCode = new Html5Qrcode('qr-hidden-file-reader', {
         formatsToSupport: [
           Html5QrcodeSupportedFormats.EAN_13,
           Html5QrcodeSupportedFormats.EAN_8,
@@ -778,6 +883,7 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
       });
 
       const decodedText = await html5QrCode.scanFile(file, true);
+      try { await html5QrCode.clear(); } catch {}
       if (decodedText) {
         handleBarcodeScanned(decodedText);
       }
@@ -2282,14 +2388,45 @@ Kembalikan HANYA format JSON murni tanpa markdown triple backticks:
 
                     {isQrScanning && (
                       <>
-                        {/* Status Zoom & Torch Bar (Top Overlay) */}
-                        <div className="absolute top-2.5 inset-x-2.5 flex items-center justify-between z-10 pointer-events-auto">
-                          <div className="px-2.5 py-1 bg-black/75 backdrop-blur-md text-white rounded-xl text-xs font-bold border border-white/10 flex items-center gap-1.5 shadow-sm">
-                            <Focus className="w-3.5 h-3.5 text-teal-400" />
-                            <span>Zoom: {zoomLevel.toFixed(1)}x</span>
+                        {/* Status Zoom, Ganti Kamera, Mode Terang & Torch Bar (Top Overlay) */}
+                        <div className="absolute top-2 inset-x-2 flex flex-wrap items-center justify-between gap-1.5 z-10 pointer-events-auto">
+                          <div className="flex items-center gap-1.5">
+                            <div className="px-2 py-1 bg-black/80 backdrop-blur-md text-white rounded-xl text-xs font-bold border border-white/10 flex items-center gap-1.5 shadow-sm">
+                              <Focus className="w-3.5 h-3.5 text-teal-400" />
+                              <span>{zoomLevel.toFixed(1)}x</span>
+                            </div>
+
+                            {/* Tombol Ganti Kamera jika ada lebih dari 1 kamera */}
+                            {availableCameras.length > 1 && (
+                              <button
+                                type="button"
+                                onClick={handleSwitchCameraInQr}
+                                className="px-2.5 py-1 rounded-xl text-xs font-bold flex items-center gap-1.5 bg-black/80 text-white border border-white/10 hover:bg-black/95 backdrop-blur-md shadow-sm transition cursor-pointer"
+                                title="Ganti Lensa / Kamera (Depan/Belakang)"
+                              >
+                                <SwitchCamera className="w-3.5 h-3.5 text-teal-400" />
+                                <span>Kamera ({selectedCameraIndex + 1}/{availableCameras.length})</span>
+                              </button>
+                            )}
                           </div>
 
                           <div className="flex items-center gap-1.5">
+                            {/* Tombol Mode Terang Anti-Gelap */}
+                            <button
+                              type="button"
+                              onClick={handleToggleExtraBright}
+                              className={`px-2.5 py-1 rounded-xl text-xs font-bold flex items-center gap-1.5 backdrop-blur-md border shadow-sm transition cursor-pointer ${
+                                isExtraBright
+                                  ? 'bg-amber-500 text-white border-amber-300 ring-2 ring-amber-300'
+                                  : 'bg-black/80 text-amber-300 border-white/10 hover:bg-black/95'
+                              }`}
+                              title="Tingkatkan Kecerahan Kamera & Kontras Barcode"
+                            >
+                              <Sun className="w-3.5 h-3.5" />
+                              <span>{isExtraBright ? 'Terang ON' : 'Mode Terang'}</span>
+                            </button>
+
+                            {/* Tombol Senter/Torch */}
                             {isTorchAvailable && (
                               <button
                                 type="button"
@@ -2297,18 +2434,13 @@ Kembalikan HANYA format JSON murni tanpa markdown triple backticks:
                                 className={`px-2.5 py-1 rounded-xl text-xs font-bold flex items-center gap-1.5 backdrop-blur-md border shadow-sm transition cursor-pointer ${
                                   isTorchOn
                                     ? 'bg-amber-500 text-white border-amber-300 ring-2 ring-amber-300'
-                                    : 'bg-black/75 text-slate-300 border-white/10 hover:bg-black/90'
+                                    : 'bg-black/80 text-slate-300 border-white/10 hover:bg-black/95'
                                 }`}
                               >
                                 <Flashlight className="w-3.5 h-3.5" />
                                 <span>{isTorchOn ? 'Senter ON' : 'Senter'}</span>
                               </button>
                             )}
-
-                            <div className="px-2.5 py-1 rounded-xl text-xs font-bold flex items-center gap-1.5 bg-black/75 text-emerald-300 border border-emerald-500/30 backdrop-blur-md shadow-sm">
-                              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                              <span>Sensitif 1D+QR</span>
-                            </div>
                           </div>
                         </div>
 
@@ -2344,6 +2476,24 @@ Kembalikan HANYA format JSON murni tanpa markdown triple backticks:
                                 : 'Arahkan Garis Laser Merah Menyilang Batang Barcode'}
                             </span>
                           </div>
+                        </div>
+
+                        {/* Quick Zoom Bar at bottom of viewfinder */}
+                        <div className="absolute bottom-2.5 inset-x-2.5 flex items-center justify-center gap-1.5 z-10 pointer-events-auto">
+                          {[1.0, 1.5, 2.0, 3.0].map((z) => (
+                            <button
+                              key={z}
+                              type="button"
+                              onClick={() => applyZoom(z)}
+                              className={`px-2.5 py-1 rounded-xl text-[11px] font-bold backdrop-blur-md border shadow-sm transition cursor-pointer ${
+                                Math.abs(zoomLevel - z) < 0.1
+                                  ? 'bg-teal-500 text-white border-teal-300 ring-2 ring-teal-300'
+                                  : 'bg-black/80 text-slate-300 border-white/10 hover:bg-black/95'
+                              }`}
+                            >
+                              {z.toFixed(1)}x
+                            </button>
+                          ))}
                         </div>
                       </>
                     )}
@@ -2586,6 +2736,8 @@ Kembalikan HANYA format JSON murni tanpa markdown triple backticks:
             </>
           )}
 
+          {/* Hidden container for file/snapshot barcode decoding */}
+          <div id="qr-hidden-file-reader" className="hidden" style={{ display: 'none' }} />
         </div>
       </div>
     </div>
