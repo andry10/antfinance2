@@ -9,9 +9,10 @@ import {
   query, 
   orderBy,
   runTransaction,
-  getDocs
+  getDocs,
+  limit
 } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType, testConnection } from '../lib/firebase';
+import { db, handleFirestoreError, OperationType, testConnection, isFirestoreQuotaExceeded } from '../lib/firebase';
 import { Product, Transaction, Expense, BusinessSettings, CartItem, Debt, PsRental, PsSavedTime, AdminFeeTier } from '../types';
 import { useAuth } from './AuthContext';
 import { ensureSafeForFirestore } from '../utils/imageCompressor';
@@ -268,17 +269,34 @@ const SAMPLE_DEBTS: Omit<Debt, 'id' | 'createdAt'>[] = [
   },
 ];
 
+const getStored = <T,>(key: string, defaultValue: T): T => {
+  try {
+    const val = localStorage.getItem(key);
+    return val ? JSON.parse(val) : defaultValue;
+  } catch {
+    return defaultValue;
+  }
+};
+
+const setStored = (key: string, value: any) => {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // ignore storage quota
+  }
+};
+
 const DataContext = createContext<DataContextType | undefined>(undefined);
 
 export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { userProfile } = useAuth();
-  const [products, setProducts] = useState<Product[]>([]);
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [expenses, setExpenses] = useState<Expense[]>([]);
-  const [debts, setDebts] = useState<Debt[]>([]);
-  const [psRentals, setPsRentals] = useState<PsRental[]>([]);
-  const [psSavedTimes, setPsSavedTimes] = useState<PsSavedTime[]>([]);
-  const [settings, setSettings] = useState<BusinessSettings>(DEFAULT_SETTINGS);
+  const [products, setProducts] = useState<Product[]>(() => getStored('ant_cached_products', []));
+  const [transactions, setTransactions] = useState<Transaction[]>(() => getStored('ant_cached_transactions', []));
+  const [expenses, setExpenses] = useState<Expense[]>(() => getStored('ant_cached_expenses', []));
+  const [debts, setDebts] = useState<Debt[]>(() => getStored('ant_cached_debts', []));
+  const [psRentals, setPsRentals] = useState<PsRental[]>(() => getStored('ant_cached_ps_rentals', []));
+  const [psSavedTimes, setPsSavedTimes] = useState<PsSavedTime[]>(() => getStored('ant_cached_ps_saved_times', []));
+  const [settings, setSettings] = useState<BusinessSettings>(() => getStored('ant_cached_settings', DEFAULT_SETTINGS));
   const [isRealtimeConnected, setIsRealtimeConnected] = useState<boolean>(true);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
 
@@ -308,19 +326,22 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
         });
         setProducts(list);
+        setStored('ant_cached_products', list);
         setIsRealtimeConnected(true);
       },
       (error) => {
         handleFirestoreError(error, OperationType.LIST, 'products');
         setIsRealtimeConnected(false);
+        // Fallback to locally stored products if quota or network issue
+        setProducts((prev) => (prev.length > 0 ? prev : getStored('ant_cached_products', [])));
       }
     );
     return () => unsubscribe();
   }, []);
 
-  // Realtime Transactions
+  // Realtime Transactions (Limited to latest 200 to prevent quota exhaustion)
   useEffect(() => {
-    const q = query(collection(db, 'transactions'), orderBy('createdAt', 'desc'));
+    const q = query(collection(db, 'transactions'), orderBy('createdAt', 'desc'), limit(200));
     const unsubscribe = onSnapshot(
       q,
       (snapshot) => {
@@ -329,17 +350,19 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           list.push({ id: doc.id, ...doc.data() } as Transaction);
         });
         setTransactions(list);
+        setStored('ant_cached_transactions', list);
       },
       (error) => {
         handleFirestoreError(error, OperationType.LIST, 'transactions');
+        setTransactions((prev) => (prev.length > 0 ? prev : getStored('ant_cached_transactions', [])));
       }
     );
     return () => unsubscribe();
   }, []);
 
-  // Realtime Expenses
+  // Realtime Expenses (Limited to latest 100 to prevent quota exhaustion)
   useEffect(() => {
-    const q = query(collection(db, 'expenses'), orderBy('createdAt', 'desc'));
+    const q = query(collection(db, 'expenses'), orderBy('createdAt', 'desc'), limit(100));
     const unsubscribe = onSnapshot(
       q,
       (snapshot) => {
@@ -348,9 +371,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           list.push({ id: doc.id, ...doc.data() } as Expense);
         });
         setExpenses(list);
+        setStored('ant_cached_expenses', list);
       },
       (error) => {
         handleFirestoreError(error, OperationType.LIST, 'expenses');
+        setExpenses((prev) => (prev.length > 0 ? prev : getStored('ant_cached_expenses', [])));
       }
     );
     return () => unsubscribe();
@@ -367,9 +392,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           list.push({ id: doc.id, ...doc.data() } as Debt);
         });
         setDebts(list);
+        setStored('ant_cached_debts', list);
       },
       (error) => {
         handleFirestoreError(error, OperationType.LIST, 'debts');
+        setDebts((prev) => (prev.length > 0 ? prev : getStored('ant_cached_debts', [])));
       }
     );
     return () => unsubscribe();
@@ -386,9 +413,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           list.push({ id: doc.id, ...doc.data() } as PsRental);
         });
         setPsRentals(list);
+        setStored('ant_cached_ps_rentals', list);
       },
       (error) => {
         handleFirestoreError(error, OperationType.LIST, 'ps_rentals');
+        setPsRentals((prev) => (prev.length > 0 ? prev : getStored('ant_cached_ps_rentals', [])));
       }
     );
     return () => unsubscribe();
@@ -405,9 +434,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           list.push({ id: doc.id, ...doc.data() } as PsSavedTime);
         });
         setPsSavedTimes(list);
+        setStored('ant_cached_ps_saved_times', list);
       },
       (error) => {
         handleFirestoreError(error, OperationType.LIST, 'ps_saved_times');
+        setPsSavedTimes((prev) => (prev.length > 0 ? prev : getStored('ant_cached_ps_saved_times', [])));
       }
     );
     return () => unsubscribe();
@@ -420,11 +451,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       docRef,
       (snap) => {
         if (snap.exists()) {
-          setSettings({ ...DEFAULT_SETTINGS, ...snap.data() } as BusinessSettings);
+          const loaded = { ...DEFAULT_SETTINGS, ...snap.data() } as BusinessSettings;
+          setSettings(loaded);
+          setStored('ant_cached_settings', loaded);
         }
       },
       (error) => {
         handleFirestoreError(error, OperationType.GET, 'settings/business_profile');
+        setSettings((prev) => prev || getStored('ant_cached_settings', DEFAULT_SETTINGS));
       }
     );
     return () => unsubscribe();
@@ -571,82 +605,82 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     dueDate: string = ''
   ): Promise<Transaction> => {
     setIsSyncing(true);
-    try {
-      const now = new Date();
-      const dateString = now.toISOString().split('T')[0];
-      const randomPart = Math.floor(1000 + Math.random() * 9000);
-      const invoiceNumber = `INV-${dateString.replace(/-/g, '')}-${randomPart}`;
+    const now = new Date();
+    const dateString = now.toISOString().split('T')[0];
+    const randomPart = Math.floor(1000 + Math.random() * 9000);
+    const invoiceNumber = `INV-${dateString.replace(/-/g, '')}-${randomPart}`;
 
-      let totalAmount = 0;
-      let totalCost = 0;
+    let totalAmount = 0;
+    let totalCost = 0;
 
-      const transactionItems = items.map((item) => {
-        const subtotal = item.product.price * item.quantity;
-        const subtotalCost = item.product.cost * item.quantity;
-        totalAmount += subtotal;
-        totalCost += subtotalCost;
-        return {
-          productId: item.product.id,
-          name: item.product.name,
-          price: item.product.price,
-          cost: item.product.cost,
-          quantity: item.quantity,
-          subtotal,
-        };
-      });
-
-      const finalAmount = Math.max(0, totalAmount - discount);
-      let totalProfit = finalAmount - totalCost;
-
-      // KHUSUS LAYANAN (PPOB, Range Transfer, E-Wallet, atau yang memiliki adminFee):
-      // Hitungan laba HANYA admin fee-nya saja!
-      const isLayanan = (adminFee !== undefined && adminFee > 0) || items.some((it) => 
-        it.product.category === 'PPOB' || 
-        it.product.masterType === 'ppob_range' || 
-        Boolean(it.product.ppobProvider) || 
-        Boolean(it.product.adminRanges)
-      );
-
-      if (isLayanan && adminFee && adminFee > 0) {
-        totalProfit = Math.max(0, adminFee - discount);
-        totalCost = Math.max(0, finalAmount - totalProfit);
-      }
-
-      // Handle optional amountPaid:
-      // Kosong / 0 = Utang Full
-      // Diisi < finalAmount = Bayar Sebagian (DP / Kas Bon Sebagian)
-      // Diisi >= finalAmount = Lunas
-      const rawPaid = typeof amountPaid === 'number' ? Math.max(0, amountPaid) : 0;
-      const actualPaid = Math.min(finalAmount, rawPaid);
-      const remainingDebt = Math.max(0, finalAmount - actualPaid);
-      const hasDebt = remainingDebt > 0 || paymentMethod === 'Hutang / Kas Bon';
-      const change = rawPaid > finalAmount ? (rawPaid - finalAmount) : 0;
-
-      const newTxRef = doc(collection(db, 'transactions'));
-      const txData: Omit<Transaction, 'id'> = {
-        invoiceNumber,
-        cashierName: userProfile?.displayName || 'Kasir',
-        cashierId: userProfile?.uid || 'guest',
-        customerName: customerName.trim() || (hasDebt ? 'Pelanggan Kas Bon' : 'Pelanggan Umum'),
-        items: transactionItems,
-        totalAmount,
-        totalCost,
-        totalProfit,
-        discount,
-        finalAmount,
-        paymentMethod: hasDebt && actualPaid === 0 ? 'Hutang / Kas Bon' : paymentMethod,
-        amountPaid: actualPaid,
-        change,
-        status: 'completed',
-        notes: hasDebt
-          ? `${notes ? notes + ' • ' : ''}${actualPaid > 0 ? `Bayar Sebagian DP Rp ${actualPaid.toLocaleString('id-ID')}, Sisa Hutang Rp ${remainingDebt.toLocaleString('id-ID')}` : 'Utang Full'}`
-          : notes,
-        adminFee,
-        customerPhone,
-        dateString,
-        createdAt: now.toISOString(),
+    const transactionItems = items.map((item) => {
+      const subtotal = item.product.price * item.quantity;
+      const subtotalCost = item.product.cost * item.quantity;
+      totalAmount += subtotal;
+      totalCost += subtotalCost;
+      return {
+        productId: item.product.id,
+        name: item.product.name,
+        price: item.product.price,
+        cost: item.product.cost,
+        quantity: item.quantity,
+        subtotal,
       };
+    });
 
+    const finalAmount = Math.max(0, totalAmount - discount);
+    let totalProfit = finalAmount - totalCost;
+
+    // KHUSUS LAYANAN (PPOB, Range Transfer, E-Wallet, atau yang memiliki adminFee):
+    // Hitungan laba HANYA admin fee-nya saja!
+    const isLayanan = (adminFee !== undefined && adminFee > 0) || items.some((it) => 
+      it.product.category === 'PPOB' || 
+      it.product.masterType === 'ppob_range' || 
+      Boolean(it.product.ppobProvider) || 
+      Boolean(it.product.adminRanges)
+    );
+
+    if (isLayanan && adminFee && adminFee > 0) {
+      totalProfit = Math.max(0, adminFee - discount);
+      totalCost = Math.max(0, finalAmount - totalProfit);
+    }
+
+    // Handle optional amountPaid:
+    // Kosong / 0 = Utang Full
+    // Diisi < finalAmount = Bayar Sebagian (DP / Kas Bon Sebagian)
+    // Diisi >= finalAmount = Lunas
+    const rawPaid = typeof amountPaid === 'number' ? Math.max(0, amountPaid) : 0;
+    const actualPaid = Math.min(finalAmount, rawPaid);
+    const remainingDebt = Math.max(0, finalAmount - actualPaid);
+    const hasDebt = remainingDebt > 0 || paymentMethod === 'Hutang / Kas Bon';
+    const change = rawPaid > finalAmount ? (rawPaid - finalAmount) : 0;
+
+    const newTxRef = doc(collection(db, 'transactions'));
+    const txData: Omit<Transaction, 'id'> = {
+      invoiceNumber,
+      cashierName: userProfile?.displayName || 'Kasir',
+      cashierId: userProfile?.uid || 'guest',
+      customerName: customerName.trim() || (hasDebt ? 'Pelanggan Kas Bon' : 'Pelanggan Umum'),
+      items: transactionItems,
+      totalAmount,
+      totalCost,
+      totalProfit,
+      discount,
+      finalAmount,
+      paymentMethod: hasDebt && actualPaid === 0 ? 'Hutang / Kas Bon' : paymentMethod,
+      amountPaid: actualPaid,
+      change,
+      status: 'completed',
+      notes: hasDebt
+        ? `${notes ? notes + ' • ' : ''}${actualPaid > 0 ? `Bayar Sebagian DP Rp ${actualPaid.toLocaleString('id-ID')}, Sisa Hutang Rp ${remainingDebt.toLocaleString('id-ID')}` : 'Utang Full'}`
+        : notes,
+      adminFee,
+      customerPhone,
+      dateString,
+      createdAt: now.toISOString(),
+    };
+
+    try {
       await runTransaction(db, async (t) => {
         for (const item of items) {
           if (!item.product.id.startsWith('custom-')) {
@@ -687,6 +721,50 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         ...txData,
       };
     } catch (error) {
+      if (isFirestoreQuotaExceeded(error)) {
+        console.warn('Quota limit reached, saving transaction locally.');
+        const fallbackTx: Transaction = {
+          id: `local-${Date.now()}`,
+          ...txData,
+        };
+        setTransactions((prev) => {
+          const next = [fallbackTx, ...prev];
+          setStored('ant_cached_transactions', next);
+          return next;
+        });
+        setProducts((prev) => {
+          const next = prev.map((p) => {
+            const purchased = items.find((it) => it.product.id === p.id);
+            if (purchased) {
+              return { ...p, stock: Math.max(0, (p.stock || 0) - purchased.quantity) };
+            }
+            return p;
+          });
+          setStored('ant_cached_products', next);
+          return next;
+        });
+        if (hasDebt && remainingDebt > 0) {
+          const localDebt: Debt = {
+            id: `local-debt-${Date.now()}`,
+            customerName: customerName.trim() || 'Pelanggan Kas Bon',
+            customerPhone: customerPhone.trim(),
+            amount: finalAmount,
+            paidAmount: actualPaid,
+            remainingAmount: remainingDebt,
+            description: notes.trim() || `Transaksi ${invoiceNumber}`,
+            dueDate: dueDate || '',
+            status: actualPaid > 0 ? 'partial' : 'unpaid',
+            createdAt: now.toISOString(),
+            updatedAt: now.toISOString(),
+          };
+          setDebts((prev) => {
+            const next = [localDebt, ...prev];
+            setStored('ant_cached_debts', next);
+            return next;
+          });
+        }
+        return fallbackTx;
+      }
       handleFirestoreError(error, OperationType.WRITE, 'transactions');
       throw error;
     } finally {
@@ -744,6 +822,22 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         updatedAt: now,
       });
     } catch (error) {
+      if (isFirestoreQuotaExceeded(error)) {
+        const localProduct: Product = {
+          id: `prod-${Date.now()}`,
+          ...productData,
+          imageUrl: productData.imageUrl || '',
+          isFuel: productData.category.toLowerCase().includes('bbm') || productData.isFuel || false,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+        setProducts((prev) => {
+          const next = [localProduct, ...prev];
+          setStored('ant_cached_products', next);
+          return next;
+        });
+        return;
+      }
       handleFirestoreError(error, OperationType.CREATE, 'products');
       throw error;
     }
@@ -761,6 +855,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         updatedAt: new Date().toISOString(),
       });
     } catch (error) {
+      if (isFirestoreQuotaExceeded(error)) {
+        setProducts((prev) => {
+          const next = prev.map((p) => (p.id === id ? { ...p, ...updates, updatedAt: new Date().toISOString() } : p));
+          setStored('ant_cached_products', next);
+          return next;
+        });
+        return;
+      }
       handleFirestoreError(error, OperationType.UPDATE, `products/${id}`);
       throw error;
     }
@@ -771,6 +873,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const docRef = doc(db, 'products', id);
       await deleteDoc(docRef);
     } catch (error) {
+      if (isFirestoreQuotaExceeded(error)) {
+        setProducts((prev) => {
+          const next = prev.filter((p) => p.id !== id);
+          setStored('ant_cached_products', next);
+          return next;
+        });
+        return;
+      }
       handleFirestoreError(error, OperationType.DELETE, `products/${id}`);
     }
   };
@@ -786,6 +896,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         updatedAt: new Date().toISOString(),
       });
     } catch (error) {
+      if (isFirestoreQuotaExceeded(error)) {
+        setProducts((prev) => {
+          const next = prev.map((p) => (p.id === id ? { ...p, stock: Math.max(0, (p.stock || 0) + delta) } : p));
+          setStored('ant_cached_products', next);
+          return next;
+        });
+        return;
+      }
       handleFirestoreError(error, OperationType.UPDATE, `products/${id}`);
     }
   };
@@ -800,6 +918,19 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         createdAt: now,
       });
     } catch (error) {
+      if (isFirestoreQuotaExceeded(error)) {
+        const localExp: Expense = {
+          id: `exp-${Date.now()}`,
+          ...expenseData,
+          createdAt: new Date().toISOString(),
+        };
+        setExpenses((prev) => {
+          const next = [localExp, ...prev];
+          setStored('ant_cached_expenses', next);
+          return next;
+        });
+        return;
+      }
       handleFirestoreError(error, OperationType.CREATE, 'expenses');
     }
   };
@@ -809,6 +940,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const docRef = doc(db, 'expenses', id);
       await deleteDoc(docRef);
     } catch (error) {
+      if (isFirestoreQuotaExceeded(error)) {
+        setExpenses((prev) => {
+          const next = prev.filter((e) => e.id !== id);
+          setStored('ant_cached_expenses', next);
+          return next;
+        });
+        return;
+      }
       handleFirestoreError(error, OperationType.DELETE, `expenses/${id}`);
     }
   };
@@ -830,6 +969,25 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         updatedAt: now,
       });
     } catch (error) {
+      if (isFirestoreQuotaExceeded(error)) {
+        const remainingAmount = Math.max(0, debtData.amount - (debtData.paidAmount || 0));
+        const status: 'unpaid' | 'partial' | 'paid' =
+          remainingAmount === 0 ? 'paid' : debtData.paidAmount > 0 ? 'partial' : 'unpaid';
+        const localDebt: Debt = {
+          id: `debt-${Date.now()}`,
+          ...debtData,
+          remainingAmount,
+          status,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+        setDebts((prev) => {
+          const next = [localDebt, ...prev];
+          setStored('ant_cached_debts', next);
+          return next;
+        });
+        return;
+      }
       handleFirestoreError(error, OperationType.CREATE, 'debts');
     }
   };
@@ -851,6 +1009,27 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         updatedAt: new Date().toISOString(),
       });
     } catch (error) {
+      if (isFirestoreQuotaExceeded(error)) {
+        setDebts((prev) => {
+          const next = prev.map((d) => {
+            if (d.id === id) {
+              const newPaid = (d.paidAmount || 0) + amountToPay;
+              const newRemaining = Math.max(0, d.amount - newPaid);
+              return {
+                ...d,
+                paidAmount: newPaid,
+                remainingAmount: newRemaining,
+                status: (newRemaining <= 0 ? 'paid' : 'partial') as 'paid' | 'partial',
+                updatedAt: new Date().toISOString(),
+              };
+            }
+            return d;
+          });
+          setStored('ant_cached_debts', next);
+          return next;
+        });
+        return;
+      }
       handleFirestoreError(error, OperationType.UPDATE, `debts/${id}`);
     }
   };
@@ -860,6 +1039,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const docRef = doc(db, 'debts', id);
       await deleteDoc(docRef);
     } catch (error) {
+      if (isFirestoreQuotaExceeded(error)) {
+        setDebts((prev) => {
+          const next = prev.filter((d) => d.id !== id);
+          setStored('ant_cached_debts', next);
+          return next;
+        });
+        return;
+      }
       handleFirestoreError(error, OperationType.DELETE, `debts/${id}`);
     }
   };
@@ -1197,6 +1384,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         updatedAt: new Date().toISOString(),
       }, { merge: true });
     } catch (error) {
+      if (isFirestoreQuotaExceeded(error)) {
+        setSettings((prev) => {
+          const next = { ...prev, ...newSettings };
+          setStored('ant_cached_settings', next);
+          return next;
+        });
+        return;
+      }
       handleFirestoreError(error, OperationType.WRITE, 'settings/business_profile');
     }
   };

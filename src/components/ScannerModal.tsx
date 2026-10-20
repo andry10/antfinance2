@@ -164,6 +164,7 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
 
   // QR / Barcode states
   const [isQrScanning, setIsQrScanning] = useState(false);
+  const [isQrLoading, setIsQrLoading] = useState(false);
   const [qrError, setQrError] = useState<string | null>(null);
   const [scannedCode, setScannedCode] = useState<string | null>(null);
   const [barcodeMatchedProduct, setBarcodeMatchedProduct] = useState<Product | null>(null);
@@ -172,6 +173,7 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
   const [availableCameras, setAvailableCameras] = useState<{ id: string; label: string }[]>([]);
   const [selectedCameraIndex, setSelectedCameraIndex] = useState<number>(0);
   const [isExtraBright, setIsExtraBright] = useState<boolean>(false);
+  const [qrFacing, setQrFacing] = useState<'environment' | 'user'>('environment');
 
   // Auto Zoom & Camera Focus states for Barcode / QR (mengatasi barcode kecil & kamera blur)
   const [zoomLevel, setZoomLevel] = useState<number>(1.0);
@@ -372,6 +374,7 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
       }
       qrReaderRef.current = null;
     }
+    setIsQrLoading(false);
     setIsQrScanning(false);
   }, []);
 
@@ -446,16 +449,23 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
     }
   }, [isTorchOn]);
 
-  // Switch camera in QR & Barcode mode (cycles through available camera lenses)
+  // Switch camera in QR & Barcode mode (cycles through available camera lenses or flips front/back)
   const handleSwitchCameraInQr = useCallback(async () => {
-    if (availableCameras.length <= 1) return;
-    const nextIdx = (selectedCameraIndex + 1) % availableCameras.length;
-    setSelectedCameraIndex(nextIdx);
     await stopQrScanner();
-    setTimeout(() => {
-      startQrScanner(availableCameras[nextIdx].id);
-    }, 150);
-  }, [availableCameras, selectedCameraIndex, stopQrScanner]);
+    if (availableCameras.length > 1) {
+      const nextIdx = (selectedCameraIndex + 1) % availableCameras.length;
+      setSelectedCameraIndex(nextIdx);
+      setTimeout(() => {
+        startQrScanner(availableCameras[nextIdx].id);
+      }, 200);
+    } else {
+      const nextFacing = qrFacing === 'environment' ? 'user' : 'environment';
+      setQrFacing(nextFacing);
+      setTimeout(() => {
+        startQrScanner(undefined, nextFacing);
+      }, 200);
+    }
+  }, [availableCameras, selectedCameraIndex, qrFacing, stopQrScanner]);
 
   // Toggle Extra Bright / High-Contrast Mode for dark rooms or dark cameras
   const handleToggleExtraBright = useCallback(async () => {
@@ -484,21 +494,41 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
   }, [isExtraBright]);
 
   // Start QR & Barcode scanner with multi-camera selection & full-frame ultra sensitivity
-  const startQrScanner = useCallback(async (forcedCameraId?: string) => {
+  const startQrScanner = useCallback(async (forcedCameraId?: string, forcedFacing?: 'environment' | 'user') => {
     if (isStartingQrRef.current) return;
     if (qrReaderRef.current && qrReaderRef.current.isScanning) {
       return; // Already actively scanning
     }
 
     isStartingQrRef.current = true;
+    setIsQrLoading(true);
     setQrError(null);
     setScannedCode(null);
     setBarcodeMatchedProduct(null);
+
+    // Pre-query video devices via standard enumerateDevices (safe, non-disruptive)
+    if (typeof navigator !== 'undefined' && navigator.mediaDevices?.enumerateDevices) {
+      try {
+        const devs = await navigator.mediaDevices.enumerateDevices();
+        const videoDevs = devs.filter((d) => d.kind === 'videoinput');
+        if (videoDevs.length > 0) {
+          setAvailableCameras(
+            videoDevs.map((d, idx) => ({
+              id: d.deviceId,
+              label: d.label || `Lensa Kamera ${idx + 1}`,
+            }))
+          );
+        }
+      } catch {
+        // ignore
+      }
+    }
 
     setTimeout(async () => {
       const element = document.getElementById('qr-reader-container');
       if (!element) {
         isStartingQrRef.current = false;
+        setIsQrLoading(false);
         return;
       }
 
@@ -513,27 +543,6 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
             // ignore
           }
           qrReaderRef.current = null;
-        }
-
-        // 1. Detect and enumerate available cameras (main back, wide, front, etc.)
-        let targetCamId = forcedCameraId;
-        try {
-          const devices = await Html5Qrcode.getCameras();
-          if (devices && devices.length > 0) {
-            setAvailableCameras(devices);
-            if (!targetCamId) {
-              // Prefer main back/rear camera
-              const backIdx = devices.findIndex((d) => {
-                const l = d.label.toLowerCase();
-                return l.includes('back') || l.includes('rear') || l.includes('belakang') || l.includes('environment');
-              });
-              const chosenIdx = backIdx !== -1 ? backIdx : 0;
-              setSelectedCameraIndex(chosenIdx);
-              targetCamId = devices[chosenIdx].id;
-            }
-          }
-        } catch (camErr) {
-          console.warn('Camera enumeration info:', camErr);
         }
 
         // Support ALL standard 1D Barcode Batang (Linear) & 2D QR formats
@@ -563,22 +572,65 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
         });
         qrReaderRef.current = html5QrCode;
 
-        // Camera config: Use specific deviceId if detected, otherwise fallback to facingMode 'environment'
-        const cameraConfig = targetCamId ? targetCamId : { facingMode: 'environment' };
+        // Camera config: Use specific forcedCameraId if explicitly selected,
+        // otherwise default to ideal facingMode (back camera)
+        const facingToUse = forcedFacing || qrFacing;
+        const cameraConfig = forcedCameraId
+          ? { deviceId: { exact: forcedCameraId } }
+          : { facingMode: { ideal: facingToUse } };
 
-        // Start scanning: Fast 20 FPS, full frame without dark shaded region mask
-        await html5QrCode.start(
-          cameraConfig,
-          {
-            fps: 20, // Fast 20 FPS for responsive handheld scan
-            disableFlip: true,
-          },
-          (decodedText) => {
-            handleBarcodeScanned(decodedText);
-          },
-          () => {}
-        );
+        try {
+          await html5QrCode.start(
+            cameraConfig,
+            {
+              fps: 20, // Fast 20 FPS for responsive handheld scan
+              disableFlip: true,
+            },
+            (decodedText) => {
+              handleBarcodeScanned(decodedText);
+            },
+            () => {}
+          );
+        } catch (startErr) {
+          console.warn('Initial camera start failed, attempting user-facing/generic fallback:', startErr);
+          if (!forcedCameraId) {
+            try {
+              await html5QrCode.start(
+                { facingMode: 'user' },
+                {
+                  fps: 20,
+                  disableFlip: true,
+                },
+                (decodedText) => {
+                  handleBarcodeScanned(decodedText);
+                },
+                () => {}
+              );
+            } catch (userErr) {
+              const devs = await navigator.mediaDevices?.enumerateDevices?.();
+              const firstCam = devs?.find((d) => d.kind === 'videoinput');
+              if (firstCam && firstCam.deviceId) {
+                await html5QrCode.start(
+                  { deviceId: { exact: firstCam.deviceId } },
+                  {
+                    fps: 20,
+                    disableFlip: true,
+                  },
+                  (decodedText) => {
+                    handleBarcodeScanned(decodedText);
+                  },
+                  () => {}
+                );
+              } else {
+                throw userErr;
+              }
+            }
+          } else {
+            throw startErr;
+          }
+        }
 
+        setIsQrLoading(false);
         setIsQrScanning(true);
         isStartingQrRef.current = false;
         isQrScanningActiveRef.current = true;
@@ -587,9 +639,14 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
         setTimeout(async () => {
           const videoEl = document.querySelector('#qr-reader-container video') as HTMLVideoElement | null;
           if (videoEl) {
-            if (isExtraBright) {
-              videoEl.style.filter = 'brightness(1.35) contrast(1.2) saturate(1.1)';
-            }
+            videoEl.setAttribute('playsinline', 'true');
+            videoEl.setAttribute('webkit-playsinline', 'true');
+            videoEl.muted = true;
+            videoEl.play().catch(() => {});
+
+            videoEl.style.filter = isExtraBright
+              ? 'brightness(1.4) contrast(1.25) saturate(1.1)'
+              : 'brightness(1.15) contrast(1.12)';
 
             if (videoEl.srcObject) {
               const stream = videoEl.srcObject as MediaStream;
@@ -699,12 +756,13 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
       } catch (err: any) {
         console.warn('Failed to start QR/Barcode reader:', err);
         isStartingQrRef.current = false;
+        setIsQrLoading(false);
         setIsQrScanning(false);
 
         if (err?.name === 'NotAllowedError' || String(err).toLowerCase().includes('permission denied')) {
           setQrError('Izin akses kamera ditolak oleh browser. Silakan izinkan akses kamera di setelan browser Anda, atau gunakan tombol "Foto Barcode HP" di bawah.');
         } else {
-          setQrError('Tidak dapat membuka kamera untuk barcode/QR. Pastikan browser mendukung kamera, atau gunakan tombol "Ambil Foto Barcode Bawaan HP" di bawah.');
+          setQrError('Kamera belum dapat dibuka langsung. Silakan klik tombol "Coba Lagi" atau "Ganti Lensa" di atas, atau gunakan tombol "Foto Barcode HP" di bawah.');
         }
       }
     }, 120);
@@ -949,7 +1007,13 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
       stopLiveCamera();
       setAiMatchedProduct(null);
       if (!cardVoucherForm && !barcodeMatchedProduct) {
-        startQrScanner();
+        const timer = setTimeout(() => {
+          startQrScanner();
+        }, 250);
+        return () => {
+          clearTimeout(timer);
+          stopQrScanner();
+        };
       }
     }
 
@@ -957,7 +1021,7 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
       stopLiveCamera();
       stopQrScanner();
     };
-  }, [isOpen, activeTab, cameraFacing, imagePreview, cardVoucherForm, barcodeMatchedProduct, aiMatchedProduct]);
+  }, [isOpen, activeTab, cameraFacing]);
 
   // Helper to resize/compress image before sending to AI
   const resizeImage = (base64Str: string, maxWidth = 1600, maxHeight = 1600, quality = 0.9): Promise<string> => {
@@ -2384,7 +2448,43 @@ Kembalikan HANYA format JSON murni tanpa markdown triple backticks:
                     onTouchEnd={handleTouchEnd}
                     className="relative rounded-2xl overflow-hidden bg-black aspect-4/3 max-w-sm mx-auto flex items-center justify-center shadow-md border border-slate-800 touch-none"
                   >
-                    <div id="qr-reader-container" className="w-full h-full" />
+                    <div id="qr-reader-container" className="absolute inset-0 w-full h-full flex items-center justify-center overflow-hidden" />
+
+                    {/* Indikator Memuat Kamera Barcode (Anti Blank Gelap) */}
+                    {isQrLoading && (
+                      <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-black/85 backdrop-blur-2xs text-white p-4 text-center">
+                        <Loader2 className="w-8 h-8 animate-spin text-teal-400" />
+                        <div className="text-xs font-bold text-slate-100">Menghubungkan Kamera Barcode & QR...</div>
+                        <div className="text-[10px] text-slate-400">Pastikan izin kamera browser telah diaktifkan</div>
+                      </div>
+                    )}
+
+                    {/* Jika Kamera Belum Terbuka (Tampil langsung di dalam kotak) */}
+                    {!isQrLoading && !isQrScanning && qrError && (
+                      <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 bg-slate-900/95 text-white p-4 text-center">
+                        <AlertCircle className="w-8 h-8 text-amber-400 shrink-0" />
+                        <div className="text-xs font-bold text-amber-300">Kamera Belum Terbuka</div>
+                        <div className="text-[11px] text-slate-300 line-clamp-3 px-2 leading-relaxed">{qrError}</div>
+                        <div className="flex flex-wrap items-center justify-center gap-2 mt-2">
+                          <button
+                            type="button"
+                            onClick={() => { setQrError(null); startQrScanner(); }}
+                            className="px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm cursor-pointer"
+                          >
+                            <RotateCcw className="w-3.5 h-3.5" />
+                            <span>Coba Lagi</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleSwitchCameraInQr}
+                            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-teal-300 rounded-xl text-xs font-bold flex items-center gap-1.5 border border-white/10 cursor-pointer"
+                          >
+                            <SwitchCamera className="w-3.5 h-3.5" />
+                            <span>Ganti Lensa</span>
+                          </button>
+                        </div>
+                      </div>
+                    )}
 
                     {isQrScanning && (
                       <>
@@ -2396,18 +2496,22 @@ Kembalikan HANYA format JSON murni tanpa markdown triple backticks:
                               <span>{zoomLevel.toFixed(1)}x</span>
                             </div>
 
-                            {/* Tombol Ganti Kamera jika ada lebih dari 1 kamera */}
-                            {availableCameras.length > 1 && (
-                              <button
-                                type="button"
-                                onClick={handleSwitchCameraInQr}
-                                className="px-2.5 py-1 rounded-xl text-xs font-bold flex items-center gap-1.5 bg-black/80 text-white border border-white/10 hover:bg-black/95 backdrop-blur-md shadow-sm transition cursor-pointer"
-                                title="Ganti Lensa / Kamera (Depan/Belakang)"
-                              >
-                                <SwitchCamera className="w-3.5 h-3.5 text-teal-400" />
-                                <span>Kamera ({selectedCameraIndex + 1}/{availableCameras.length})</span>
-                              </button>
-                            )}
+                            {/* Tombol Ganti Kamera / Balik Kamera */}
+                            <button
+                              type="button"
+                              onClick={handleSwitchCameraInQr}
+                              className="px-2.5 py-1 rounded-xl text-xs font-bold flex items-center gap-1.5 bg-black/80 text-white border border-white/10 hover:bg-black/95 backdrop-blur-md shadow-sm transition cursor-pointer"
+                              title="Ganti Lensa / Balik Kamera Depan-Belakang"
+                            >
+                              <SwitchCamera className="w-3.5 h-3.5 text-teal-400" />
+                              <span>
+                                {availableCameras.length > 1
+                                  ? `Kamera (${selectedCameraIndex + 1}/${availableCameras.length})`
+                                  : qrFacing === 'environment'
+                                  ? 'Kamera Belakang'
+                                  : 'Kamera Depan'}
+                              </span>
+                            </button>
                           </div>
 
                           <div className="flex items-center gap-1.5">

@@ -30,26 +30,42 @@ input, select, textarea {
 #qr-reader-container {
   width: 100% !important;
   height: 100% !important;
-  position: relative !important;
+  position: absolute !important;
+  inset: 0 !important;
   background-color: transparent !important;
   border: none !important;
   padding: 0 !important;
+  margin: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  overflow: hidden !important;
+  z-index: 1 !important;
 }
 
 #qr-reader-container video {
   width: 100% !important;
   height: 100% !important;
+  min-width: 100% !important;
+  min-height: 100% !important;
   object-fit: cover !important;
-  border-radius: 1rem;
+  display: block !important;
+  background-color: transparent !important;
+  filter: contrast(1.15) brightness(1.12);
+  transition: filter 0.2s ease-in-out;
 }
 
 /* Sembunyikan shaded region bawaan html5-qrcode yang membuat kamera gelap */
-#qr-reader-container #qr-shaded-region {
+#qr-reader-container #qr-shaded-region,
+#qr-reader-container canvas,
+#qr-reader-container #qr-canvas,
+#qr-reader-container img,
+#qr-reader-container span[id*="status"] {
   display: none !important;
 }
 
-#qr-reader-container img[alt="Info icon"] {
-  display: none !important;
+#qr-reader-container div {
+  border: none !important;
 }
 
 @media print {
