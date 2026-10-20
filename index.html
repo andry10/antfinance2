@@ -3,12 +3,84 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>CatatUsaha - Kasir &amp; Pembukuan Realtime</title>
-    <meta name="description" content="Aplikasi pencatatan usaha dan kasir POS realtime dengan laporan penjualan harian, cetak PDF, dan manajemen stok terintegrasi." />
-    <meta property="og:title" content="CatatUsaha - Kasir &amp; Pembukuan Realtime" />
-    <meta property="og:description" content="Aplikasi pencatatan usaha dan kasir POS realtime dengan laporan penjualan harian, cetak PDF, dan manajemen stok terintegrasi." />
+    <title>CatatUsaha - Kasir & Pembukuan Realtime</title>
+    <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+    <link rel="icon" type="image/jpeg" href="/logo.jpg" />
+    <link rel="apple-touch-icon" href="/logo.jpg" />
+    <meta name="theme-color" content="#0F766E" />
+    <meta name="description" content="Aplikasi kasir POS dan pembukuan usaha terintegrasi Firebase Realtime dengan manajemen pengguna, cetak nota, dan laporan penjualan." />
+    <meta property="og:title" content="CatatUsaha - Kasir & Pembukuan Realtime" />
+    <meta property="og:description" content="Aplikasi kasir POS dan pembukuan usaha terintegrasi Firebase Realtime dengan manajemen pengguna, cetak nota, dan laporan penjualan." />
+    <meta property="og:image" content="/logo.jpg" />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:image" content="/logo.jpg" />
+    <script>
+      (function() {
+        // AI Studio Dev Environment: HMR WebSocket is disabled in preview proxy.
+        // Intercept Vite HMR WebSocket to prevent 'WebSocket closed without opened' unhandled rejection.
+        var NativeWebSocket = window.WebSocket;
+        if (typeof NativeWebSocket !== 'undefined') {
+          window.WebSocket = function(url, protocols) {
+            var isViteHmr = false;
+            if (protocols === 'vite-hmr' || (Array.isArray(protocols) && protocols.indexOf('vite-hmr') !== -1)) {
+              isViteHmr = true;
+            } else if (typeof url === 'string' && (url.indexOf('vite') !== -1 || url.indexOf('@vite/client') !== -1)) {
+              isViteHmr = true;
+            }
+
+            if (isViteHmr) {
+              var listeners = {};
+              var stub = {
+                url: url,
+                readyState: 1, // OPEN
+                CONNECTING: 0,
+                OPEN: 1,
+                CLOSING: 2,
+                CLOSED: 3,
+                addEventListener: function(type, fn) {
+                  listeners[type] = listeners[type] || [];
+                  listeners[type].push(fn);
+                  if (type === 'open') {
+                    setTimeout(function() {
+                      try { fn({ type: 'open', target: stub }); } catch (e) {}
+                    }, 0);
+                  }
+                },
+                removeEventListener: function(type, fn) {
+                  if (listeners[type]) {
+                    listeners[type] = listeners[type].filter(function(f) { return f !== fn; });
+                  }
+                },
+                dispatchEvent: function() { return true; },
+                send: function() {},
+                close: function() {
+                  stub.readyState = 3;
+                }
+              };
+              return stub;
+            }
+
+            return new NativeWebSocket(url, protocols);
+          };
+          window.WebSocket.prototype = NativeWebSocket.prototype;
+        }
+
+        // Suppress any stray WebSocket rejections from showing as unhandled rejections
+        window.addEventListener('unhandledrejection', function(event) {
+          var reason = event && event.reason;
+          var msg = (reason && (reason.message || reason.stack)) || String(reason || '');
+          if (
+            msg.indexOf('WebSocket') !== -1 ||
+            msg.indexOf('@vite/client') !== -1 ||
+            msg.indexOf('closed without opened') !== -1
+          ) {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+          }
+        });
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

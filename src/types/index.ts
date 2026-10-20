@@ -26,6 +26,10 @@ export interface Product {
   masterType?: 'barang' | 'ppob_range' | 'ps';
   ppobProvider?: string;
   adminRanges?: AdminRange[]; // Range fee per layanan PPOB
+  imageUrl?: string; // Cloudinary secure URL
+  provider?: string; // e.g. Tri, Telkomsel, Axis, Indosat, XL, Smartfren
+  quota?: string; // e.g. "10 GB"
+  validity?: string; // e.g. "3 Hari" / "30 Hari"
   createdAt: string;
   updatedAt: string;
 }
@@ -135,14 +139,34 @@ export interface BusinessSettings {
   phone: string;
   receiptFooter: string;
   adminFeeTiers?: AdminFeeTier[];
+  cloudinaryCloudName?: string;
+  cloudinaryUploadPreset?: string;
+  cloudinaryApiKey?: string;
+  geminiApiKey?: string;
   updatedAt?: string;
 }
 
 export interface UserProfile {
   uid: string;
+  username?: string;
   displayName: string;
   email: string;
   role: 'admin' | 'kasir';
   photoURL?: string;
-  isDemo?: boolean;
+  phone?: string;
+  notes?: string;
+  createdAt?: string;
+}
+
+export interface AppUser {
+  id: string;
+  username: string;
+  password?: string;
+  email: string;
+  displayName: string;
+  role: 'admin' | 'kasir';
+  phone?: string;
+  notes?: string;
+  createdAt: string;
+  updatedAt?: string;
 }

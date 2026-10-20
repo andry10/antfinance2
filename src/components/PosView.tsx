@@ -22,18 +22,25 @@ import {
   Smartphone,
   Package,
   ArrowRight,
-  RotateCcw
+  RotateCcw,
+  Camera,
+  ScanLine
 } from 'lucide-react';
 import { useData, DEFAULT_ADMIN_TIERS, getProductAdminRanges } from '../context/DataContext';
+import { useAuth } from '../context/AuthContext';
 import { Product, CartItem, Transaction, AdminFeeTier } from '../types';
 import { formatRupiah, formatNumberWithDots, parseNumberFromDots } from '../utils/formatters';
 import { ReceiptModal } from './ReceiptModal';
+import { ScannerModal } from './ScannerModal';
 
 export const PosView: React.FC = () => {
   const { products, createTransaction, settings, isSyncing } = useData();
+  const { userProfile } = useAuth();
+  const isAdmin = userProfile?.role === 'admin';
 
   // Search state
   const [searchQuery, setSearchQuery] = useState('');
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
   
   // STEP 1 -> STEP 2: Selected Item (after user clicks an item in the search list)
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
@@ -58,6 +65,7 @@ export const PosView: React.FC = () => {
   // Feedback & Receipt Modal
   const [completedTx, setCompletedTx] = useState<Transaction | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [scanFeedback, setScanFeedback] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Calculate dynamic admin fee from the SELECTED PRODUCT's own admin ranges (from Data Master)
@@ -274,6 +282,22 @@ export const PosView: React.FC = () => {
 
       <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden p-5 sm:p-7 space-y-6">
         
+        {/* Banner feedback jika produk otomatis terpilih dari hasil scan */}
+        {scanFeedback && (
+          <div className="p-3.5 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-2xl text-xs flex items-center justify-between shadow-xs animate-in fade-in">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span className="font-bold">{scanFeedback}</span>
+            </div>
+            <button
+              onClick={() => setScanFeedback(null)}
+              className="text-slate-400 hover:text-slate-600 p-1"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
         {/* ============================================================ */}
         {/* LANGKAH 1: CARI DI TRANSAKSI (MUNCUL LIST, BUKAN KOTAK-KOTAK) */}
         {/* ============================================================ */}
@@ -294,24 +318,47 @@ export const PosView: React.FC = () => {
             )}
           </div>
 
-          <div className="relative">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
-            <input
-              type="text"
-              placeholder="Ketik untuk mencari: DANA, pulsa, pertalite, kopi, sembako..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-12 pr-4 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-semibold text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-teal-500 focus:bg-white transition"
-            />
-            {searchQuery && (
-              <button
-                type="button"
-                onClick={() => setSearchQuery('')}
-                className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            )}
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
+              <input
+                type="text"
+                placeholder="Ketik untuk mencari: DANA, pulsa, pertalite, voucher kuota, sembako..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-12 pr-10 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-semibold text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-teal-500 focus:bg-white transition"
+              />
+              {searchQuery ? (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1"
+                  title="Hapus pencarian"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setIsScannerOpen(true)}
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-teal-600 hover:text-teal-700 p-1 rounded-lg"
+                  title="Scan dengan Kamera HP"
+                >
+                  <Camera className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+
+            {/* Tombol Scan Sejajar dengan Bar Pencarian - Mengarah ke Kamera HP (AI Vision Kuota GB & Barcode/QR) */}
+            <button
+              type="button"
+              onClick={() => setIsScannerOpen(true)}
+              className="h-[50px] px-3.5 sm:px-4 bg-teal-600 hover:bg-teal-700 active:scale-95 text-white rounded-2xl flex items-center justify-center gap-2 shadow-xs transition shrink-0 cursor-pointer group"
+              title="Scan Voucher Kuota GB (AI Vision) / Barcode & QR Code Data Master"
+            >
+              <ScanLine className="w-5 h-5 group-hover:scale-110 transition-transform" />
+              <span className="text-xs font-bold hidden sm:inline">Scan (Kamera HP)</span>
+            </button>
           </div>
 
           {/* LIST DAFTAR PENCARIAN (FORMAT LIST BERSIH, BUKAN KOTAK-KOTAK) */}
@@ -319,7 +366,9 @@ export const PosView: React.FC = () => {
             <div className="border border-slate-200 rounded-2xl overflow-hidden divide-y divide-slate-100 bg-white max-h-64 overflow-y-auto shadow-xs">
               {searchResults.length === 0 ? (
                 <div className="p-6 text-center text-xs text-slate-400">
-                  Tidak ditemukan item dengan nama "{searchQuery}". Tambahkan item baru di menu <b>Data Master</b>.
+                  {isAdmin
+                    ? `Tidak ditemukan item dengan nama "${searchQuery}". Tambahkan item baru di menu Data Master.`
+                    : `Tidak ditemukan item dengan nama "${searchQuery}". Silakan hubungi Admin untuk mendaftarkan barang baru.`}
                 </div>
               ) : (
                 searchResults.map((p) => {
@@ -333,17 +382,25 @@ export const PosView: React.FC = () => {
                       className="px-4 py-3 flex items-center justify-between hover:bg-teal-50/70 transition cursor-pointer select-none group"
                     >
                       <div className="flex items-center space-x-3">
-                        <div
-                          className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-xs ${
-                            isRange
-                              ? 'bg-blue-100 text-blue-700'
-                              : isPulsa
-                              ? 'bg-purple-100 text-purple-700'
-                              : 'bg-emerald-100 text-emerald-700'
-                          }`}
-                        >
-                          {isRange ? 'PPOB' : isPulsa ? 'PULSA' : 'BRG'}
-                        </div>
+                        {p.imageUrl ? (
+                          <img
+                            src={p.imageUrl}
+                            alt={p.name}
+                            className="w-10 h-10 object-cover rounded-xl border border-slate-200 shrink-0 shadow-xs"
+                          />
+                        ) : (
+                          <div
+                            className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-xs shrink-0 ${
+                              isRange
+                                ? 'bg-blue-100 text-blue-700'
+                                : isPulsa
+                                ? 'bg-purple-100 text-purple-700'
+                                : 'bg-emerald-100 text-emerald-700'
+                            }`}
+                          >
+                            {isRange ? 'PPOB' : isPulsa ? 'PULSA' : 'BRG'}
+                          </div>
+                        )}
                         <div>
                           <div className="text-sm font-bold text-slate-800 group-hover:text-teal-700 transition">
                             {p.name}
@@ -389,9 +446,17 @@ export const PosView: React.FC = () => {
             {/* Banner Item yang Dipilih */}
             <div className="p-4 bg-teal-50 border border-teal-200 rounded-2xl flex items-center justify-between">
               <div className="flex items-center space-x-3">
-                <div className="w-10 h-10 rounded-xl bg-teal-600 text-white flex items-center justify-center font-bold text-sm">
-                  ✓
-                </div>
+                {selectedProduct.imageUrl ? (
+                  <img
+                    src={selectedProduct.imageUrl}
+                    alt={selectedProduct.name}
+                    className="w-12 h-12 object-cover rounded-xl border border-teal-300 shrink-0 shadow-xs"
+                  />
+                ) : (
+                  <div className="w-10 h-10 rounded-xl bg-teal-600 text-white flex items-center justify-center font-bold text-sm">
+                    ✓
+                  </div>
+                )}
                 <div>
                   <span className="text-[10px] font-bold uppercase tracking-wider text-teal-700">
                     Item Terpilih ({selectedProduct.category})
@@ -817,6 +882,21 @@ export const PosView: React.FC = () => {
           onClose={() => setCompletedTx(null)}
         />
       )}
+
+      {/* Scanner Modal (AI Vision Kuota GB & Barcode/QR) */}
+      <ScannerModal
+        isOpen={isScannerOpen}
+        onClose={() => setIsScannerOpen(false)}
+        products={products}
+        onSelectProduct={(product) => {
+          handleItemClick(product);
+          setScanFeedback(`✓ Produk "${product.name}" (${formatRupiah(product.price)}) otomatis terpilih dari hasil scan!`);
+          setTimeout(() => setScanFeedback(null), 5000);
+        }}
+        onApplySearchQuery={(query) => {
+          setSearchQuery(query);
+        }}
+      />
     </div>
   );
 };

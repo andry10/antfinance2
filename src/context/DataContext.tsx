@@ -14,6 +14,7 @@ import {
 import { db, handleFirestoreError, OperationType, testConnection } from '../lib/firebase';
 import { Product, Transaction, Expense, BusinessSettings, CartItem, Debt, PsRental, PsSavedTime, AdminFeeTier } from '../types';
 import { useAuth } from './AuthContext';
+import { ensureSafeForFirestore } from '../utils/imageCompressor';
 
 export const calculatePsRentalCost = (unit: PsRental, durationMinutes: number): number => {
   if (durationMinutes <= 0) return 0;
@@ -89,6 +90,7 @@ interface DataContextType {
   // Settings & seed
   updateSettings: (newSettings: Partial<BusinessSettings>) => Promise<void>;
   seedInitialData: () => Promise<void>;
+  cleanDuplicateProducts: () => Promise<{ deletedCount: number; remainingCount: number }>;
   resetAllData: () => Promise<void>;
 }
 
@@ -151,6 +153,7 @@ const DEFAULT_SETTINGS: BusinessSettings = {
   phone: '0812-3456-7890',
   receiptFooter: 'Terima Kasih Telah Berbelanja & Bertransaksi! Datang kembali ya!',
   adminFeeTiers: DEFAULT_ADMIN_TIERS,
+  cloudinaryCloudName: 'cqwosuvb',
 };
 
 const SAMPLE_PRODUCTS: Omit<Product, 'id' | 'createdAt' | 'updatedAt'>[] = [
@@ -214,6 +217,13 @@ const SAMPLE_PRODUCTS: Omit<Product, 'id' | 'createdAt' | 'updatedAt'>[] = [
   { name: 'Pulsa Indosat 10.000', category: 'Pulsa', sku: 'PLS-ISAT10', price: 12000, cost: 10200, stock: 999, minStock: 10, unit: 'Trx', masterType: 'barang' },
   { name: 'Pulsa XL / Axis 10.000', category: 'Pulsa', sku: 'PLS-XL10', price: 12000, cost: 10250, stock: 999, minStock: 10, unit: 'Trx', masterType: 'barang' },
   { name: 'Token Listrik PLN 50.000', category: 'PPOB', sku: 'PLN-50', price: 52500, cost: 50000, stock: 999, minStock: 10, unit: 'Trx', masterType: 'barang' },
+
+  // Voucher Fisik & Kuota Data (dengan Kuota GB & Barcode SKU)
+  { name: 'Voucher Telkomsel 10 GB (30 Hari)', category: 'Pulsa', sku: '89910010010', price: 38000, cost: 34500, stock: 50, minStock: 5, unit: 'Pcs', masterType: 'barang' },
+  { name: 'Voucher Indosat Freedom 10 GB (30 Hari)', category: 'Pulsa', sku: '89920020010', price: 35000, cost: 31000, stock: 45, minStock: 5, unit: 'Pcs', masterType: 'barang' },
+  { name: 'Voucher XL Xtra Combo 15 GB (30 Hari)', category: 'Pulsa', sku: '89930030015', price: 48000, cost: 42500, stock: 30, minStock: 5, unit: 'Pcs', masterType: 'barang' },
+  { name: 'Voucher Tri AlwaysOn 3 GB (30 Hari)', category: 'Pulsa', sku: '89940040003', price: 20000, cost: 16500, stock: 40, minStock: 5, unit: 'Pcs', masterType: 'barang' },
+  { name: 'Kartu Perdana Axis 24 GB (60 Hari)', category: 'Pulsa', sku: '89950050024', price: 65000, cost: 58000, stock: 25, minStock: 5, unit: 'Pcs', masterType: 'barang' },
 
   // BBM Products
   { name: 'Pertalite (BBM Eceran)', category: 'BBM', sku: 'BBM-01', price: 12000, cost: 10000, stock: 120, minStock: 25, unit: 'Liter', isFuel: true, masterType: 'barang' },
@@ -286,8 +296,16 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       q,
       (snapshot) => {
         const list: Product[] = [];
-        snapshot.forEach((doc) => {
-          list.push({ id: doc.id, ...doc.data() } as Product);
+        const seenIds = new Set<string>();
+        const seenKeys = new Set<string>();
+        snapshot.forEach((docSnap) => {
+          const item = { id: docSnap.id, ...docSnap.data() } as Product;
+          const key = (item.sku?.trim().toLowerCase()) || (item.name?.trim().toLowerCase() + '___' + (item.category || '').trim().toLowerCase());
+          if (!seenIds.has(item.id) && !seenKeys.has(key)) {
+            seenIds.add(item.id);
+            seenKeys.add(key);
+            list.push(item);
+          }
         });
         setProducts(list);
         setIsRealtimeConnected(true);
@@ -416,47 +434,82 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
 
 
+  const cleanDuplicateProducts = async () => {
+    try {
+      setIsSyncing(true);
+      const snap = await getDocs(collection(db, 'products'));
+      const seen = new Map<string, string>();
+      const toDelete: string[] = [];
+      const docs: Product[] = [];
+      snap.forEach(d => docs.push({ id: d.id, ...d.data() } as Product));
+      for (const item of docs) {
+        const normName = (item.name || '').trim().toLowerCase();
+        const normSku = (item.sku || '').trim().toLowerCase();
+        const normCat = (item.category || '').trim().toLowerCase();
+        const key = normSku ? normSku : `${normName}___${normCat}`;
+        if (seen.has(key)) {
+          toDelete.push(item.id);
+        } else {
+          seen.set(key, item.id);
+        }
+      }
+      for (const id of toDelete) {
+        await deleteDoc(doc(db, 'products', id));
+      }
+      return { deletedCount: toDelete.length, remainingCount: seen.size };
+    } catch (err) {
+      console.error('Error deduplicating products:', err);
+      throw err;
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   const seedInitialData = async () => {
     try {
       setIsSyncing(true);
-      // Products
+      const now = new Date().toISOString();
+
+      // Products with deterministic doc IDs (prevents duplicates)
       for (const p of SAMPLE_PRODUCTS) {
-        const newDocRef = doc(collection(db, 'products'));
-        const now = new Date().toISOString();
-        await setDoc(newDocRef, {
+        const docId = 'prod_' + (p.sku || p.name).toLowerCase().replace(/[^a-z0-9]/g, '_');
+        const pRef = doc(db, 'products', docId);
+        await setDoc(pRef, {
           ...p,
           createdAt: now,
           updatedAt: now,
-        });
+        }, { merge: true });
       }
 
       // Settings
       await setDoc(doc(db, 'settings', 'business_profile'), {
         ...DEFAULT_SETTINGS,
-        updatedAt: new Date().toISOString(),
-      });
+        updatedAt: now,
+      }, { merge: true });
 
-      // PS Rentals
+      // PS Rentals with deterministic IDs
       for (const r of SAMPLE_PS_RENTALS) {
-        const rRef = doc(collection(db, 'ps_rentals'));
+        const rDocId = 'ps_' + r.unitName.toLowerCase().replace(/[^a-z0-9]/g, '_');
+        const rRef = doc(db, 'ps_rentals', rDocId);
         await setDoc(rRef, {
           ...r,
-          updatedAt: new Date().toISOString(),
-        });
+          updatedAt: now,
+        }, { merge: true });
       }
 
-      // Debts
+      // Debts with deterministic IDs
       for (const d of SAMPLE_DEBTS) {
-        const dRef = doc(collection(db, 'debts'));
+        const dDocId = 'debt_' + d.customerName.toLowerCase().replace(/[^a-z0-9]/g, '_');
+        const dRef = doc(db, 'debts', dDocId);
         await setDoc(dRef, {
           ...d,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        });
+          createdAt: now,
+          updatedAt: now,
+        }, { merge: true });
       }
 
       // Initial expense
-      const sampleExpenseRef = doc(collection(db, 'expenses'));
+      const sampleExpenseRef = doc(db, 'expenses', 'exp_init_token');
       const todayStr = new Date().toISOString().split('T')[0];
       await setDoc(sampleExpenseRef, {
         title: 'Beli Bahan Baku & Listrik Token',
@@ -465,8 +518,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         notes: 'Token listrik rental & kantong plastik',
         createdBy: userProfile?.displayName || 'Admin',
         dateString: todayStr,
-        createdAt: new Date().toISOString(),
-      });
+        createdAt: now,
+      }, { merge: true });
     } catch (err) {
       console.error('Seed data error', err);
     } finally {
@@ -682,26 +735,34 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const newDocRef = doc(collection(db, 'products'));
       const now = new Date().toISOString();
+      const safeImageUrl = await ensureSafeForFirestore(productData.imageUrl);
       await setDoc(newDocRef, {
         ...productData,
+        imageUrl: safeImageUrl,
         isFuel: productData.category.toLowerCase().includes('bbm') || productData.isFuel || false,
         createdAt: now,
         updatedAt: now,
       });
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, 'products');
+      throw error;
     }
   };
 
   const updateProduct = async (id: string, updates: Partial<Product>) => {
     try {
       const docRef = doc(db, 'products', id);
+      const safeUpdates = { ...updates };
+      if (safeUpdates.imageUrl) {
+        safeUpdates.imageUrl = await ensureSafeForFirestore(safeUpdates.imageUrl);
+      }
       await updateDoc(docRef, {
-        ...updates,
+        ...safeUpdates,
         updatedAt: new Date().toISOString(),
       });
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `products/${id}`);
+      throw error;
     }
   };
 
@@ -1176,6 +1237,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         deletePsUnit,
         updateSettings,
         seedInitialData,
+        cleanDuplicateProducts,
         resetAllData,
       }}
     >

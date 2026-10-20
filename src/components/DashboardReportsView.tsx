@@ -158,32 +158,71 @@ export const DashboardReportsView: React.FC = () => {
       .slice(0, 5);
   }, [filteredTransactions]);
 
-  // Hourly Distribution for the active day (8 AM to 22 PM)
-  const hourlyStats = useMemo(() => {
-    const hours = Array.from({ length: 15 }, (_, i) => i + 8); // 8:00 to 22:00
-    const counts = new Map<number, number>();
-    hours.forEach((h) => counts.set(h, 0));
+  // Dynamic Trend Distribution: By Day if multi-day range, or By Hour if single day
+  const trendStats = useMemo(() => {
+    const completedTx = filteredTransactions.filter((t) => t.status === 'completed');
+    const uniqueDates = Array.from(new Set(completedTx.map((t) => t.dateString).filter(Boolean))).sort();
+    const isMultiDay = uniqueDates.length > 1 || filterPeriod === '7days' || filterPeriod === 'month' || filterPeriod === 'range';
 
-    filteredTransactions.forEach((tx) => {
+    if (isMultiDay && uniqueDates.length > 0) {
+      const dateMap = new Map<string, number>();
+      uniqueDates.forEach((d) => dateMap.set(d, 0));
+      completedTx.forEach((tx) => {
+        if (tx.dateString && dateMap.has(tx.dateString)) {
+          dateMap.set(tx.dateString, (dateMap.get(tx.dateString) || 0) + tx.finalAmount);
+        }
+      });
+
+      const maxVal = Math.max(...Array.from(dateMap.values()), 1);
+      return {
+        type: 'daily' as const,
+        title: 'Tren Penjualan Harian (Per Tanggal)',
+        subtitle: 'Grafik fluktuasi omzet kasir per hari dalam periode ini',
+        data: uniqueDates.map((d) => {
+          const parts = d.split('-');
+          const day = parts[2];
+          const monthNum = parseInt(parts[1], 10) - 1;
+          const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+          const amount = dateMap.get(d) || 0;
+          return {
+            label: `${day} ${monthNames[monthNum] || ''}`,
+            amount,
+            percentage: Math.round((amount / maxVal) * 100),
+          };
+        }),
+      };
+    }
+
+    // Single day: 08:00 to 22:00
+    const hours = Array.from({ length: 15 }, (_, i) => i + 8);
+    const hourMap = new Map<number, number>();
+    hours.forEach((h) => hourMap.set(h, 0));
+
+    completedTx.forEach((tx) => {
       const date = new Date(tx.createdAt);
       const h = date.getHours();
-      if (counts.has(h)) {
-        counts.set(h, (counts.get(h) || 0) + tx.finalAmount);
+      if (hourMap.has(h)) {
+        hourMap.set(h, (hourMap.get(h) || 0) + tx.finalAmount);
       }
     });
 
-    const maxVal = Math.max(...Array.from(counts.values()), 1);
+    const maxVal = Math.max(...Array.from(hourMap.values()), 1);
 
-    return hours.map((h) => ({
-      hour: `${h.toString().padStart(2, '0')}:00`,
-      amount: counts.get(h) || 0,
-      percentage: Math.round(((counts.get(h) || 0) / maxVal) * 100),
-    }));
-  }, [filteredTransactions]);
+    return {
+      type: 'hourly' as const,
+      title: 'Tren Penjualan Berdasarkan Jam Operasional',
+      subtitle: 'Grafik omzet kasir untuk melihat jam sibuk belanja (peak hours)',
+      data: hours.map((h) => ({
+        label: `${h.toString().padStart(2, '0')}:00`,
+        amount: hourMap.get(h) || 0,
+        percentage: Math.round(((hourMap.get(h) || 0) / maxVal) * 100),
+      })),
+    };
+  }, [filteredTransactions, filterPeriod]);
 
   // Handle PDF Export
-  const handleExportPDF = () => {
-    generateDailySalesReportPDF({
+  const handleExportPDF = async () => {
+    await generateDailySalesReportPDF({
       dateLabel: periodLabel,
       transactions: filteredTransactions,
       expenses: filteredExpenses,
@@ -237,10 +276,11 @@ export const DashboardReportsView: React.FC = () => {
 
           <button
             onClick={handleExportPDF}
-            className="flex items-center gap-2 px-4 py-2.5 bg-teal-600 hover:bg-teal-700 text-white font-semibold rounded-xl text-xs shadow-sm transition active:scale-95"
+            className="flex items-center gap-2 px-4 py-2.5 bg-teal-600 hover:bg-teal-700 text-white font-semibold rounded-xl text-xs shadow-sm transition active:scale-95 cursor-pointer"
+            title="Unduh rekapitulasi laporan lengkap dengan visualisasi grafik tren dan pembayaran"
           >
             <Download className="w-4 h-4" />
-            <span>Unduh Laporan PDF</span>
+            <span>Unduh Laporan PDF (+Grafik)</span>
           </button>
         </div>
       </div>
@@ -376,41 +416,47 @@ export const DashboardReportsView: React.FC = () => {
 
       {/* Middle Row: Hourly Chart & Payment Methods Breakdown */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Hourly Sales Bar Chart */}
+        {/* Dynamic Sales Bar Chart (Daily or Hourly) */}
         <div className="lg:col-span-2 bg-white p-5 rounded-2xl border border-slate-100 shadow-xs space-y-4">
           <div className="flex items-center justify-between">
             <div>
               <h3 className="font-bold text-slate-800 text-sm flex items-center gap-2">
                 <Clock className="w-4 h-4 text-teal-600" />
-                Tren Penjualan Berdasarkan Jam Operasional
+                <span>{trendStats.title}</span>
               </h3>
               <p className="text-[11px] text-slate-400">
-                Grafik omzet kasir untuk melihat jam sibuk belanja (peak hours)
+                {trendStats.subtitle}
               </p>
             </div>
           </div>
 
           <div className="h-44 flex items-end gap-2 pt-6 pb-2 border-b border-slate-100 overflow-x-auto">
-            {hourlyStats.map((item) => (
-              <div key={item.hour} className="flex-1 flex flex-col items-center gap-1.5 min-w-[28px] h-full justify-end group">
-                <div className="relative w-full flex justify-center items-end h-full">
-                  <div
-                    style={{ height: `${Math.max(item.percentage, 4)}%` }}
-                    className={`w-full max-w-[20px] rounded-t-md transition-all ${
-                      item.amount > 0 ? 'bg-teal-600 group-hover:bg-teal-500' : 'bg-slate-100'
-                    }`}
-                  />
-                  {item.amount > 0 && (
-                    <div className="absolute -top-7 opacity-0 group-hover:opacity-100 bg-slate-900 text-white text-[9px] py-0.5 px-1.5 rounded pointer-events-none whitespace-nowrap z-10 transition">
-                      {formatRupiah(item.amount)}
-                    </div>
-                  )}
-                </div>
-                <span className="text-[9px] font-mono text-slate-400 rotate-45 sm:rotate-0 mt-1">
-                  {item.hour.slice(0, 2)}
-                </span>
+            {trendStats.data.length === 0 ? (
+              <div className="w-full h-full flex items-center justify-center text-xs text-slate-400">
+                Belum ada data transaksi pada periode ini
               </div>
-            ))}
+            ) : (
+              trendStats.data.map((item, idx) => (
+                <div key={idx} className="flex-1 flex flex-col items-center gap-1.5 min-w-[28px] h-full justify-end group">
+                  <div className="relative w-full flex justify-center items-end h-full">
+                    <div
+                      style={{ height: `${Math.max(item.percentage, 4)}%` }}
+                      className={`w-full max-w-[22px] rounded-t-md transition-all ${
+                        item.amount > 0 ? 'bg-teal-600 group-hover:bg-teal-500' : 'bg-slate-100'
+                      }`}
+                    />
+                    {item.amount > 0 && (
+                      <div className="absolute -top-7 opacity-0 group-hover:opacity-100 bg-slate-900 text-white text-[9px] py-0.5 px-1.5 rounded pointer-events-none whitespace-nowrap z-10 transition">
+                        {formatRupiah(item.amount)}
+                      </div>
+                    )}
+                  </div>
+                  <span className="text-[9px] font-mono text-slate-500 rotate-45 sm:rotate-0 mt-1 truncate max-w-[40px] text-center">
+                    {item.label}
+                  </span>
+                </div>
+              ))
+            )}
           </div>
         </div>
 

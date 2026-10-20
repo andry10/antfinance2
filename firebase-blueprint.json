@@ -138,11 +138,15 @@
       "type": "object",
       "properties": {
         "email": { "type": "string", "maxLength": 100 },
+        "username": { "type": "string", "maxLength": 50 },
+        "password": { "type": "string", "maxLength": 100 },
         "displayName": { "type": "string", "maxLength": 100 },
         "role": { "type": "string", "enum": ["admin", "kasir"] },
+        "phone": { "type": "string", "maxLength": 30 },
+        "notes": { "type": "string", "maxLength": 200 },
         "updatedAt": { "type": "string" }
       },
-      "required": ["email", "role"]
+      "required": ["role"]
     }
   },
   "firestore": {

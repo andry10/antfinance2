@@ -47,6 +47,9 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
         >
           {/* Header */}
           <div className="text-center space-y-1 border-b border-dashed border-slate-300 pb-3">
+            <div className="w-10 h-10 rounded-xl overflow-hidden mx-auto mb-1 border border-slate-200">
+              <img src="/logo.jpg" alt="Logo CatatUsaha" className="w-full h-full object-cover" />
+            </div>
             <h2 className="text-base font-bold tracking-wider uppercase text-slate-900 font-sans">
               {settings.businessName || 'CATAT USAHA'}
             </h2>
